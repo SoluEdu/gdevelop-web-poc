@@ -1,0 +1,17 @@
+services:
+  web:
+    restart: always
+    image: ${FULL_IMAGE}
+    ports:
+      - '127.0.0.1:18530:80'
+    tty: true
+    container_name: gdevelop-web-poc-service
+    env_file:
+      - .env
+    networks:
+      - gdevelop-network
+
+networks:
+  gdevelop-network:
+    name: gdevelop-network
+    external: true
