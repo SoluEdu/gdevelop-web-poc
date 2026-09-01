@@ -61,21 +61,21 @@ pipeline {
 
         // ------------------------------------------
         // 2. Resolve Staging Server Config
-        //    Deploy hanya untuk branch 'staging'.
+        //    Deploy hanya untuk branch 'main'.
         //    Branch lain tetap build & test, tapi tidak deploy
         //    (karena saat ini baru ada server staging).
         // ------------------------------------------
         stage('Resolve Environment') {
             steps {
                 script {
-                    if (env.BRANCH_NAME != 'staging') {
-                        echo "Branch '${env.BRANCH_NAME}' bukan 'staging'."
+                    if (env.BRANCH_NAME != 'main') {
+                        echo "Branch '${env.BRANCH_NAME}' bukan 'main'."
                         echo "Hanya menjalankan Build & Test, tanpa Docker push / deploy."
                         env.DEPLOY_TARGET = 'none'
                         return
                     }
 
-                    env.DEPLOY_TARGET = 'staging'
+                    env.DEPLOY_TARGET = 'main'
                     env.REMOTE_USER   = env.STAGING_REMOTE_USER
                     env.REMOTE_HOST   = env.STAGING_REMOTE_HOST
 
@@ -158,7 +158,7 @@ pipeline {
         //    lagi di blok post{} supaya tidak numpuk di workspace Jenkins.
         // ------------------------------------------
         stage('Docker Build & Push') {
-            when { expression { env.DEPLOY_TARGET == 'staging' } }
+            when { expression { env.DEPLOY_TARGET == 'main' } }
             steps {
                 echo "Building Docker image: ${env.FULL_IMAGE}"
 
@@ -203,7 +203,7 @@ set -euo pipefail
         //    perlu shebang tambahan di dalam heredoc itu.
         // ------------------------------------------
         stage('Deploy to Staging') {
-            when { expression { env.DEPLOY_TARGET == 'staging' } }
+            when { expression { env.DEPLOY_TARGET == 'main' } }
             steps {
                 sshagent(["${SSH_CREDENTIAL_ID}"]) {
 
@@ -289,7 +289,7 @@ EOF
         //    khusus (mis. /healthz) yang di-serve Nginx.
         // ------------------------------------------
         stage('Health Check') {
-            when { expression { env.DEPLOY_TARGET == 'staging' } }
+            when { expression { env.DEPLOY_TARGET == 'main' } }
             steps {
                 sshagent(["${SSH_CREDENTIAL_ID}"]) {
                     sh """
@@ -323,7 +323,7 @@ EOF
     post {
         success {
             script {
-                if (env.DEPLOY_TARGET == 'staging') {
+                if (env.DEPLOY_TARGET == 'main') {
                     echo "✅ Deployment ${env.IMAGE_TAG} berhasil ke STAGING (${env.REMOTE_HOST})"
                 } else {
                     echo "✅ Build & Test berhasil untuk branch '${env.BRANCH_NAME}' (tanpa deploy)."
