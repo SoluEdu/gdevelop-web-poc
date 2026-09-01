@@ -34,15 +34,22 @@ export async function createUploadDirectory(): Promise<FileSystemDirectoryHandle
 // ── file operations ───────────────────────────────────────────────────────────
 
 /**
- * Save a File into OPFS at uploads/<id>.zip
+ * Save raw buffer into OPFS at uploads/<id>.zip (used by GitHub import).
  */
-export async function saveFile(id: string, file: File): Promise<void> {
+export async function saveBuffer(id: string, buffer: ArrayBuffer): Promise<void> {
   const dir = await createUploadDirectory();
   const filename = `${id}.zip`;
   const fileHandle = await dir.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
-  await writable.write(await file.arrayBuffer());
+  await writable.write(buffer);
   await writable.close();
+}
+
+/**
+ * Save a File into OPFS at uploads/<id>.zip
+ */
+export async function saveFile(id: string, file: File): Promise<void> {
+  await saveBuffer(id, await file.arrayBuffer());
 }
 
 /**
@@ -145,7 +152,7 @@ export async function extractGameToOPFS(
     const filename = pathParts[pathParts.length - 1];
     const fileHandle = await currentDir.getFileHandle(filename, { create: true });
     const writable = await fileHandle.createWritable();
-    await writable.write(entry.data);
+    await writable.write(entry.data as unknown as ArrayBuffer);
     await writable.close();
 
     written++;
