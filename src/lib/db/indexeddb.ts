@@ -14,6 +14,8 @@ export interface StoredFile {
   opfsPath: string;
   extracted?: boolean;     // true once games/<id>/ exists in OPFS
   entryCount?: number;     // number of files extracted from the ZIP
+  sourceUrl?: string;      // GitHub release URL if imported
+  sourceType?: 'upload' | 'github';
 }
 
 // ── open ──────────────────────────────────────────────────────────────────────

@@ -12,19 +12,24 @@ export interface ZipEntry {
 
 // ── validation ────────────────────────────────────────────────────────────────
 
-const MAX_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB
+export const MAX_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB
 
-export function validateZip(file: File): void {
-  // Extension is primary (MIME can be inconsistent)
-  const ext = file.name.split('.').pop()?.toLowerCase();
+export function validateZipFilename(name: string): void {
+  const ext = name.split('.').pop()?.toLowerCase();
   if (ext !== 'zip') {
     throw new Error(`Invalid file type. Expected .zip, got .${ext ?? 'unknown'}`);
   }
-  if (file.size > MAX_SIZE_BYTES) {
-    throw new Error(
-      `File too large. Maximum is 500 MB, but file is ${formatBytes(file.size)}.`
-    );
+}
+
+export function validateZipSize(size: number): void {
+  if (size > MAX_SIZE_BYTES) {
+    throw new Error(`File too large. Maximum is 500 MB, but file is ${formatBytes(size)}.`);
   }
+}
+
+export function validateZip(file: File): void {
+  validateZipFilename(file.name);
+  validateZipSize(file.size);
 }
 
 // ── extraction ────────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 <script lang="ts">
   import StorageInfo from './components/StorageInfo.svelte';
   import FileUpload from './components/FileUpload.svelte';
+  import GithubImport from './components/GithubImport.svelte';
   import FileList from './components/FileList.svelte';
   import TestPanel from './components/TestPanel.svelte';
   import type { StoredFile } from './lib/db/indexeddb';
@@ -40,6 +41,7 @@
       <div class="left">
         <StorageInfo bind:this={storageInfo} />
         <FileUpload on:saved={onFileSaved} />
+        <GithubImport on:saved={onFileSaved} />
       </div>
 
       <!-- Right column: list + tests -->
