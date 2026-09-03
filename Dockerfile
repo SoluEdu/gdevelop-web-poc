@@ -1,11 +1,10 @@
 # ==============================================
-# Stage 1: Build
+# Stage 1: Build (Vue + Vite)
 # ==============================================
 FROM node:22-alpine AS build
 
 WORKDIR /app
 
-# Copy dulu package files supaya cache layer npm ci lebih optimal
 COPY package*.json ./
 RUN npm ci
 
@@ -19,22 +18,21 @@ ENV VITE_BUILD_DATE=${BUILD_DATE} \
 RUN npm run build
 
 # ==============================================
-# Stage 2: Serve dengan Nginx
+# Stage 2: Serve dengan Node (handler GitHub download)
+# Node sebagai handler untuk mendownload import dari GitHub,
+# lalu tetap simpan di OPFS (OPFS tetap di browser).
 # ==============================================
-FROM nginx:1.27-alpine
+FROM node:22-alpine
 
-# Hapus konfigurasi default Nginx
-RUN rm -f /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-# Copy konfigurasi custom (termasuk endpoint /health)
-COPY ./nginx.conf /etc/nginx/conf.d/default.conf
-
-# Copy hasil build Vue (folder dist) ke direktori yang di-serve Nginx
-COPY --from=build /app/dist /usr/share/nginx/html
+# No GitHub credentials in image — token transit only
+COPY --from=build /app/dist ./dist
+COPY server.mjs ./
 
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O- http://127.0.0.1/health || exit 1
+    CMD wget -q -O- http://127.0.0.1:80/health || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.mjs"]

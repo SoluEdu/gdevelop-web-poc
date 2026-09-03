@@ -1,65 +1,74 @@
 import { defineConfig } from 'vite';
-import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import vue from '@vitejs/plugin-vue';
 
-function githubProxy() {
+function devGithubHandler() {
   return {
-    name: 'github-proxy',
+    name: 'dev-github-handler',
     configureServer(server: any) {
       server.middlewares.use(async (req: any, res: any, next: any) => {
-        if (!req.url?.startsWith('/__gh/')) return next();
-        try {
-          const u = new URL(req.url, `http://${req.headers.host}`);
-          // GET /__gh/asset?url=https://api.github.com/repos/.../assets/123
-          if (u.pathname === '/__gh/asset') {
-            const target = u.searchParams.get('url');
-            if (!target) {
-              res.statusCode = 400;
-              res.end('missing url param');
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        if (req.method === 'POST' && url.pathname === '/api/github/import') {
+          let raw = '';
+          for await (const chunk of req) raw += chunk;
+          let body: any;
+          try { body = raw ? JSON.parse(raw) : {}; } catch { res.statusCode = 400; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({error:'Invalid JSON'})); return; }
+          const rawUrl = body.url;
+          if (!rawUrl) { res.statusCode = 400; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({error:'url wajib diisi'})); return; }
+          let parsed: any;
+          try {
+            const u = new URL(rawUrl.trim());
+            if (u.host !== 'github.com' && u.host !== 'www.github.com') throw new Error('URL harus dari github.com');
+            const m = u.pathname.match(/^\/([^/]+)\/([^/]+)\/releases\/download\/([^/]+)\/(.+)$/);
+            if (!m) throw new Error('Format URL harus: https://github.com/<owner>/<repo>/releases/download/<tag>/<file>.zip');
+            const [, owner, repo, tag, filename] = m;
+            if (!filename.toLowerCase().endsWith('.zip')) throw new Error('file release harus .zip');
+            parsed = { owner, repo, tag, filename, url: u.toString() };
+          } catch (e:any) { res.statusCode = 400; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({error:e.message})); return; }
+          const auth = req.headers['authorization'] || '';
+          const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : undefined;
+          const apiHeaders: any = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'opfs-poc' };
+          if (token) apiHeaders['Authorization'] = `Bearer ${token}`;
+          const releaseUrl = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/releases/tags/${encodeURIComponent(parsed.tag)}`;
+          try {
+            const releaseRes = await fetch(releaseUrl, { headers: apiHeaders });
+            if (!releaseRes.ok) {
+              const body = await releaseRes.text().catch(()=> '');
+              res.statusCode = releaseRes.status;
+              res.setHeader('Content-Type','application/json');
+              res.end(JSON.stringify({error: body.slice(0,500) || releaseRes.statusText}));
               return;
             }
-            const token = (req.headers['x-github-token'] as string) || undefined;
-            const headers: Record<string, string> = {
-              Accept: 'application/octet-stream',
-              'User-Agent': 'opfs-poc',
-            };
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            // also forward GitHub API version header
-            const ghRes = await fetch(target, { headers, redirect: 'follow' } as any);
-            res.statusCode = ghRes.status;
-            const ct = ghRes.headers.get('content-type');
-            if (ct) res.setHeader('content-type', ct);
-            const cl = ghRes.headers.get('content-length');
-            if (cl) res.setHeader('content-length', cl);
-            const cd = ghRes.headers.get('content-disposition');
-            if (cd) res.setHeader('content-disposition', cd);
-            // Allow same-origin fetch (no CORS needed) but also add ACAO for safety
-            res.setHeader('access-control-allow-origin', '*');
-            if (!ghRes.ok) {
-              const txt = await ghRes.text().catch(() => '');
-              res.end(txt || `GitHub ${ghRes.status}`);
-              return;
+            const releaseJson: any = await releaseRes.json();
+            const asset = releaseJson.assets?.find((a:any)=> a.name===parsed.filename);
+            if (!asset) { res.statusCode = 404; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({error:`File "${parsed.filename}" tidak ditemukan`})); return; }
+            const assetUrl = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/releases/assets/${asset.id}`;
+            const dlHeaders: any = { Accept: 'application/octet-stream', 'User-Agent':'opfs-poc' };
+            if (token) dlHeaders['Authorization'] = `Bearer ${token}`;
+            const ghRes: any = await fetch(assetUrl, { headers: dlHeaders, redirect: 'follow' });
+            if (!ghRes.ok) { const t= await ghRes.text().catch(()=> ''); res.statusCode=ghRes.status; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({error:t.slice(0,500)})); return; }
+            res.statusCode = 200;
+            res.setHeader('Content-Type', ghRes.headers.get('content-type') || 'application/octet-stream');
+            const cl = ghRes.headers.get('content-length'); if (cl) res.setHeader('Content-Length', cl);
+            const cd = ghRes.headers.get('content-disposition'); if (cd) res.setHeader('Content-Disposition', cd);
+            res.setHeader('Cache-Control','private, no-store');
+            res.setHeader('X-Content-Type-Options','nosniff');
+            if (ghRes.body) {
+              const reader = ghRes.body.getReader();
+              while(true){ const {done,value}= await reader.read(); if(done) break; if(value) res.write(Buffer.from(value)); }
+              res.end();
+            } else {
+              const buf = Buffer.from(await ghRes.arrayBuffer());
+              res.end(buf);
             }
-            const buf = await (ghRes as any).arrayBuffer();
-            res.end(Buffer.from(buf));
-            return;
-          }
-          res.statusCode = 404;
-          res.end('not found');
-        } catch (e: any) {
-          res.statusCode = 500;
-          res.end(String(e?.message || e));
+          } catch (e:any) { res.statusCode=500; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({error:e.message})); }
+          return;
         }
+        next();
       });
     },
   };
 }
 
 export default defineConfig({
-  plugins: [
-    svelte({
-      preprocess: vitePreprocess(),
-    }),
-    githubProxy(),
-  ],
+  plugins: [vue(), devGithubHandler()],
 });

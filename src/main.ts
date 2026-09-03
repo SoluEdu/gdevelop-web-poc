@@ -1,6 +1,7 @@
-import App from './App.svelte';
+import { createApp } from 'vue';
+import App from './App.vue';
 
-// ── Service Worker registration ───────────────────────────────────────────────
+// Service Worker registration
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker
     .register('/sw.js', { scope: '/games/' })
@@ -8,8 +9,4 @@ if ('serviceWorker' in navigator) {
     .catch((err) => console.error('[SW] Registration failed:', err));
 }
 
-const app = new App({
-  target: document.getElementById('app')!,
-});
-
-export default app;
+createApp(App).mount('#app');

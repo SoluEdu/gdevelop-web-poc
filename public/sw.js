@@ -106,6 +106,25 @@ async function handleGameRequest(pathname) {
     const file = await fileHandle.getFile();
     const contentType = getContentType(filename);
 
+    // ── inject in-app console interceptor for HTML (captures logs before iframe load patch) ──
+    if (contentType.includes('text/html')) {
+      try {
+        const text = await file.text();
+        const inject = `<script>(function(){if(window.__opfsConsolePatched)return;window.__opfsConsolePatched=true;var s=function(l,a){try{parent.postMessage({__opfsConsole:true,level:l,args:a.map(function(x){try{return typeof x==='object'?JSON.stringify(x):String(x)}catch(e){return String(x)}})},'*')}catch(e){}};['log','warn','error','info','debug'].forEach(function(l){var o=console[l];console[l]=function(){var a=[].slice.call(arguments);try{s(l,a)}catch(e){}return o.apply(console,a)}});window.addEventListener('error',function(e){s('error',[e.message+' @ '+e.filename+':'+e.lineno+':'+e.colno])});window.addEventListener('unhandledrejection',function(e){var r=e.reason;s('error',['Unhandled rejection: '+(r&&r.message?r.message:String(r))])});s('info',['Console ready — '+location.pathname]);})();<\/script>`;
+        const injected = text.includes('</head>') ? text.replace('</head>', inject + '</head>') : inject + text;
+        return new Response(injected, {
+          status: 200,
+          headers: {
+            'Content-Type': contentType,
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+          },
+        });
+      } catch (_) {
+        // fallback to raw file
+      }
+    }
+
     return new Response(file, {
       status: 200,
       headers: {
