@@ -1,161 +1,235 @@
-# 🎮 GDevelop HTML5 Runner — Tanpa Backend
+# 🎮 Browser Storage POC — Vue + Node
 
-> **Upload ZIP → Extract → Play.** Jalankan export GDevelop Web (HTML5) langsung di browser. 100% client-side. Tanpa server, tanpa upload ke cloud.
+> **Upload ZIP / Import GitHub Release → Extract → Play** langsung di browser.<br/>
+> Game GDevelop HTML5 tanpa hosting, 100% client-side via **OPFS + IndexedDB + Service Worker**.
 
 <p>
-  <img src="https://img.shields.io/badge/Svelte-4-ff3e00?style=flat-square&logo=svelte&logoColor=white" alt="Svelte 4" />
-  <img src="https://img.shields.io/badge/Vite-5-646cff?style=flat-square&logo=vite&logoColor=white" alt="Vite 5" />
-  <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Vue-3-4fc08d?style=flat-square&logo=vue.js&logoColor=white" alt="Vue 3" />
+  <img src="https://img.shields.io/badge/Vite-5-646cff?style=flat-square&logo=vite&logoColor=white" alt="Vite" />
+  <img src="https://img.shields.io/badge/Node-22-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square" alt="TS" />
   <img src="https://img.shields.io/badge/OPFS-native-16a34a?style=flat-square" alt="OPFS" />
-  <img src="https://img.shields.io/badge/license-PoC-lightgrey?style=flat-square" alt="license" />
+  <img src="https://img.shields.io/badge/Service_Worker-enabled-ff6b35?style=flat-square" alt="SW" />
 </p>
 
+---
+
+## 🗺️ Arsitektur
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        A[👤 User] --> B[Vue App]
+        B --> C[OPFS<br/>Binary Storage]
+        B --> D[(IndexedDB<br/>Metadata)]
+        B --> E[Service Worker<br/>/games/:id/**]
+        E --> F[🖼️ iframe Game]
+        C <--> E
+    end
+    subgraph Server["Node server.mjs"]
+        G[POST /api/github/import]
+    end
+    subgraph GitHub["GitHub API"]
+        H[api.github.com]
+        I[release-assets.githubusercontent.com]
+    end
+    B -- "Bearer PAT (memory only)" --> G
+    G --> H --> I
+    I -- "ZIP stream" --> G -- "ZIP stream" --> B
+    B -- "saveBuffer + extract<br/>(fflate)" --> C
+
+    style C fill:#16a34a,color:#fff
+    style D fill:#2563eb,color:#fff
+    style E fill:#ff6b35,color:#fff
+    style G fill:#339933,color:#fff
 ```
-ZIP GDevelop ──► OPFS + IndexedDB ──► Service Worker /games/<id>/ ──► <iframe> ──► Play
-   (upload / GitHub release)        (extract via fflate)              (same-origin, no CORS)
+
+---
+
+## 🔄 Alur Lengkap
+
+```mermaid
+flowchart TD
+    Start([📦 ZIP GDevelop]) --> Choice{Import via?}
+
+    Choice -->|Upload| U1[Drag & Drop / File Picker]
+    U1 --> U2[Validasi .zip ≤500MB]
+    U2 --> Save
+
+    Choice -->|GitHub Release| G1[Paste URL<br/>github.com/.../releases/download/...]
+    G1 --> G2[+ PAT ghp_...]
+    G2 --> G3["Vue POST /api/github/import<br/>{url, token}"]
+    G3 --> G4["Node: GET /repos/:owner/:repo/tags/:tag<br/>→ asset.id"]
+    G4 --> G5["Node: GET /assets/:id<br/>redirect:follow + stream"]
+    G5 --> G6[Vue terima ZIP stream]
+
+    G6 --> Save
+    Save[💾 Simpan ke OPFS/uploads<br/>+ IndexedDB metadata]
+    Save --> Extract["📂 Extract via fflate<br/>stripCommonPrefix → games/<id>/"]
+    Extract --> Play[▶️ Play]
+    Play --> SW{SW ready?}
+    SW -->|yes| Iframe[🖼️ iframe /games/:id/index.html]
+    Iframe --> Inject[💉 SW inject console hook<br/>postMessage → In-app Console]
+    Inject --> Done([🎉 Game Jalan!])
+    SW -->|no| Wait[⏳ Tunggu SW activate]
+
+    style Save fill:#16a34a,color:#fff
+    style Extract fill:#646cff,color:#fff
+    style Play fill:#f59e0b,color:#000
+    style Done fill:#16a34a,color:#fff
 ```
 
-Repo ini membuktikan **game GDevelop export HTML5 tidak butuh web server**. Biasanya butuh hosting untuk `index.html`, `*.js`, audio, `*.wasm`, dll. PoC ini menggantikan server dengan storage browser modern.
-
 ---
 
-## ✨ Kenapa Ini Ada?
+## 🔐 Sequence — GitHub Private Release
 
-| Masalah | Solusi PoC |
-|---|---|
-| GDevelop butuh web server untuk serve file statis | **OPFS** simpan binary (zip + hasil extract) di filesystem private browser — kapasitas besar, bukan `localStorage` |
-| Butuh metadata/listing yang cepat | **IndexedDB** simpan `{ id, name, size, extracted, entryCount, sourceUrl }` — binary tetap di OPFS |
-| Game butuh same-origin tanpa CORS | **Service Worker** `public/sw.js` intercept `GET /games/<id>/**` dan serve langsung dari OPFS |
-| ZIP harus di-extract di browser | **fflate** `unzipSync` — `stripCommonPrefix` otomatis normalisasi `mygame/index.html` → `index.html` |
+```mermaid
+sequenceDiagram
+    participant U as 👤 Vue
+    participant N as 🟢 Node server.mjs
+    participant GH as 🐙 api.github.com
+    participant RA as 📦 release-assets
 
-Hasil: **Network tab → (ServiceWorker) — nol request ke server.**
-
----
-
-## 🚀 Fitur
-
-- 📁 **Upload ZIP** — validasi `.zip` + max 500 MB, progress, `FileUpload.svelte`
-- ☁️ **Import dari GitHub Release** — paste `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>.zip` + token opsional untuk repo privat (`GithubImport.svelte`) — resolve via `api.github.com` + proxy dev `/__gh/asset` agar bebas CORS
-- 📦 **Extract ke OPFS** `games/<id>/` — handle folder root tunggal, progress per-file, update `extracted` di IndexedDB
-- 📋 **File List** — sorting, badge `ZIP only` / `✓ Extracted`, Read (peek isi ZIP), Play, Delete (hapus `uploads/<id>.zip` + `games/<id>/` + IndexedDB)
-- 💾 **Storage Info** — `navigator.storage.estimate()` usage/quota bar
-- 🎮 **Game Runner** — modal iframe `/games/<id>/index.html`, pastikan SW `/games/` aktif, fullscreen, open in new tab, Esc to close, `allow="autoplay; fullscreen"` + `sandbox`
-- 🔒 **Secure by default** — token GitHub tidak pernah disimpan (memory request saja), tidak masuk OPFS/IndexedDB/localStorage
-
----
-
-## 🎯 Dua Cara Import
-
-### 1. Upload Lokal
-`FileUpload` → pilih `.zip` → Save to Browser → Extract → Play
-
-### 2. Import dari GitHub Release (tanpa download manual)
+    U->>N: POST /api/github/import {url, token}
+    Note over U,N: PAT tidak disimpan<br/>hanya di ref() + header transit
+    N->>GH: GET /repos/:owner/:repo/git/refs/tags/:tag<br/>Authorization: Bearer PAT
+    GH-->>N: tag object / commit SHA
+    N->>GH: GET /repos/:owner/:repo/releases/tags/:tag<br/>Authorization: Bearer PAT
+    GH-->>N: {assets: [{id, name, size}]}
+    N->>GH: GET /repos/:owner/:repo/releases/assets/:id<br/>Accept: octet-stream, redirect:follow
+    GH->>RA: 302 → release-assets.githubusercontent.com
+    RA-->>N: ZIP binary stream
+    N-->>U: ZIP stream (no-store)
+    U->>U: OPFS saveBuffer + fflate extract
 ```
-https://github.com/SoluEdu/ipas-k3b6/releases/download/v1.0.0/html5.zip
+
+---
+
+## 🎯 Kenapa Ada
+
+GDevelop butuh web server untuk `index.html/js/wasm/audio`. PoC ini ganti server dengan storage browser:
+
+```mermaid
+mindmap
+  root((Browser Storage))
+    OPFS
+      Binary besar
+      File game
+      uploads + games/id
+    IndexedDB
+      Metadata
+      id name size
+      extracted sourceUrl
+    Service Worker
+      Serve /games/id/**
+      Same-origin no CORS
+      Inject console hook
 ```
-1. Copy URL release (pastikan file `.zip`)
-2. Paste di card **Import dari GitHub Release**
-3. Kosongkan token untuk repo publik, isi `ghp_...` / `github_pat_...` untuk privat (PAT `contents:read`)
-4. Klik **📥 Import dari GitHub** — progress streaming, validasi 500 MB, simpan ke OPFS, lalu Extract → Play seperti upload
-
-> **CORS?** `github.com` tidak kirim `ACAO`. PoC pakai `api.github.com/releases/tags/:tag` → cari `asset.id` → download `api.github.com/.../assets/:id` via **Vite dev proxy** `GET /__gh/asset?url=...` (Node `fetch` + `Authorization: Bearer <token>` server-side, follow redirect ke `release-assets.githubusercontent.com`). Di `localhost` tanpa CORS, di produksi fallback ke `corsproxy.io`.
 
 ---
 
-## 🧩 Stack
+## ✨ Fitur
 
-**Svelte 4 + TypeScript + Vite 5** · `fflate@0.8` · Native OPFS & IndexedDB (tanpa wrapper) · Service Worker
+| Fitur | Deskripsi |
+|-------|-----------|
+| 📤 **Upload ZIP** | `.zip` ≤500 MB → OPFS + IndexedDB |
+| 🔒 **Import GitHub Privat** | Paste URL + `ghp_...` (memory-only). Node handle `GET /repos/.../tags/{tag} → asset.id → GET /assets/{id}` dengan stream — tanpa CORS fail |
+| 📂 **Extract & Play** | `fflate` + `stripCommonPrefix` + progress + `GameRunner` iframe + SW `/games/` + fullscreen + open new tab |
+| 🖥️ **In-app Console** | Accordion overlay (default) atau docked, toggle `Bottom/Right`, filter/copy/clear, tangkap `console.*` + `error`/`unhandledrejection` via SW inject + `postMessage` |
+| 💾 **Storage Info & Tests** | `navigator.storage.estimate()` + Test OPFS/IndexedDB + Clear All |
 
 ---
 
-## ⚡ Quick Start
+## 🧱 Stack
 
-### Prasyarat
-- Node 18+
-- Browser Chromium (Chrome/Edge) untuk OPFS paling stabil. Firefox/Safari bisa tapi perlu uji.
-- **HTTPS atau `localhost`** — OPFS & SW butuh secure context.
+```mermaid
+flowchart LR
+    Vue["Vue 3 + TS + Vite 5"] --> fflate[fflate unzip]
+    Vue --> OPFS[Native OPFS/IndexedDB]
+    Vue --> SW[public/sw.js]
+    Node["Node 22<br/>server.mjs"] --> GH[GitHub API proxy]
+    SW --> Iframe[Game iframe]
 
-### Dev (dengan proxy GitHub)
+    style Vue fill:#4fc08d,color:#fff
+    style Node fill:#339933,color:#fff
+```
+
+**Vue 3 + TypeScript + Vite 5** · **Node 22** (`server.mjs`) · `fflate` · Native OPFS/IndexedDB · `public/sw.js`
+
+---
+
+## 🚀 Quick Start
+
 ```bash
 npm install
-npm run dev
-# buka http://localhost:5173  (Vite proxy /__gh aktif, tidak butuh cert)
-# atau https://localhost:5173 jika butuh SW di host lain (repo sudah ada cert.pem/key.pem, di-ignore git)
+npm run dev      # http://localhost:5173 (Vite handle /api/github/import)
+npm run build    # Vite → dist/
+npm run start    # node server.mjs serve dist + /health + /api/github/import (port 80)
 ```
 
-### Build & Preview
+**Docker** (single container `node:22-alpine`, tanpa nginx / tanpa `ENV` token):
+
 ```bash
-npm run build
-npm run preview   # dist/ — untuk prod, GitHub import akan lewat corsproxy.io (atau deploy Worker sendiri)
-npm run check     # svelte-check
+docker build -t poc .
+docker run -p 80:80 poc  # /health OK
+# compose: 127.0.0.1:18530:80 → gdevelop-network
 ```
 
-> Tip: butuh self-signed cert? `npx mkcert localhost` atau pakai `vite --host` di `localhost` — Chrome izinkan SW di `http://localhost`.
-
 ---
 
-## 🎨 Cara Pakai — Flow GDevelop
+## 🎮 Cara Pakai GDevelop
 
-1. **Export** dari GDevelop: `File → Export → Web (HTML5) → ZIP`
-2. **Import** via Upload atau GitHub Release
-3. **Extract** di list (jika belum auto)
-4. **Play** — `GameRunner` pastikan SW `/games/` aktif lalu load `/games/<id>/index.html` di iframe. Cek DevTools → Network → `(from ServiceWorker)`
+```mermaid
+flowchart LR
+    A[1️⃣ Export GDevelop<br/>Web HTML5 → ZIP] --> B[2️⃣ Import<br/>Upload / GitHub]
+    B --> C[3️⃣ Extract]
+    C --> D[4️⃣ ▶ Play]
+    D --> E[5️⃣ Cek Network<br/>from ServiceWorker ✅]
+    E --> F[6️⃣ Error?<br/>◧ Console]
 
-### Catatan GDevelop
-- Jika ZIP berisi 1 folder root (`game/index.html`) → otomatis di-strip (`src/lib/storage/opfs.ts:98` `stripCommonPrefix`)
-- Entry harus `index.html` di root. Jika nama lain, rename dulu sebelum zip.
-- MIME di `public/sw.js:9`: `html/js/css/json/wasm/png/jpg/mp3/ogg/wav/mp4/webm/woff2` dll — tambah mapping jika game pakai ekstensi lain.
-
----
-
-## 🏗️ Arsitektur & Storage
-
-```
-public/sw.js                → fetch /games/<id>/** dari OPFS, header COOP/COEP
-src/App.svelte              → StorageInfo + FileUpload + GithubImport | FileList + TestPanel
-src/components/
-  FileUpload.svelte         → validateZip → saveFile → IndexedDB
-  GithubImport.svelte       → parse URL → fetchGithubZip (api + proxy) → saveBuffer → IndexedDB
-  FileList.svelte           → getAllFiles, extractGameToOPFS, deleteGame, read modal
-  GameRunner.svelte         → ensure SW /games/, iframe, fullscreen
-  StorageInfo/TestPanel
-src/lib/
-  storage/opfs.ts           → getRoot, saveBuffer/saveFile, extractGameToOPFS, deleteGame
-  db/indexeddb.ts           → file-storage-poc v2, store files { id, name, size, type, createdAt, opfsPath, extracted, entryCount, sourceUrl, sourceType }
-  github/fetch.ts           → parseGithubReleaseUrl, fetchGithubZip (api + /__gh proxy + corsproxy fallback)
-  zip/zip.ts                → validateZipFilename/Size, extractZip, formatBytes
-  utils/uuid.ts
+    style A fill:#e0f2fe,color:#000
+    style D fill:#fef3c7,color:#000
+    style F fill:#fee2e2,color:#000
 ```
 
-**Layout:**
-- OPFS: `uploads/<uuid>.zip` + `games/<uuid>/**`
-- IndexedDB: `file-storage-poc` (`v2`)
+1. Export GDevelop → Web (HTML5) → ZIP (pastikan `index.html` di root; jika `game/index.html` otomatis di-strip)
+2. Import via Upload atau GitHub Release → **Extract** → **▶ Play** → cek Network `(from ServiceWorker)`
+3. Play error? Buka `◧ Console` di header runner — toggle `Overlay/Docked` & `Bottom/Side`
 
 ---
 
-## ⚠️ Keterbatasan
+## 📁 Struktur
 
-- Butuh **secure context** (HTTPS/`localhost`). `file://` tidak bisa.
-- Kapasitas dari `navigator.storage.estimate()` — browser bisa evict jika penuh.
-- Full client-side, tidak sync lintas device (sengaja — tanpa backend). Untuk share → upload ulang atau pakai GitHub Release.
-- Max 500 MB (`MAX_SIZE_BYTES` di `src/lib/zip/zip.ts`) — ubah jika perlu.
-- iOS Safari: OPFS baru tersedia di versi recent.
-- Produksi statis tanpa proxy: GitHub import lewat `corsproxy.io` (publik). Untuk privat/produksi serius, deploy Worker/edge proxy sendiri yang forward `Authorization`.
+```mermaid
+flowchart TD
+    SWJS["public/sw.js<br/>serve /games/id/** + inject hook"]
+    App["src/App.vue<br/>StorageInfo + Upload + GithubImport<br/>FileList + TestPanel"]
+    GI["src/components/GithubImport.vue<br/>parse URL → POST /api/github/import"]
+    GR["src/components/GameRunner.vue<br/>SW ready → iframe + console"]
+    Fetch["src/lib/github/fetch.ts<br/>parse + POST bridge"]
+    OPFS2["src/lib/storage/opfs.ts<br/>saveBuffer / extract / delete"]
+    IDB["src/lib/db/indexeddb.ts<br/>file-storage-poc v2"]
+    Server["server.mjs<br/>static dist + POST /api/github/import"]
+
+    App --> GI & GR
+    GI --> Fetch --> Server
+    GR --> SWJS
+    App --> OPFS2 & IDB
+```
+
+| File | Peran |
+|------|-------|
+| `public/sw.js` | Serve `/games/<id>/**` dari OPFS + inject console hook (html) |
+| `src/App.vue` | StorageInfo + FileUpload + GithubImport \| FileList + TestPanel |
+| `src/components/GithubImport.vue` | Parse URL → POST `/api/github/import` (Bearer) |
+| `src/components/GameRunner.vue` | SW ready → iframe + console accordion |
+| `src/lib/github/fetch.ts` | Parse + POST bridge |
+| `src/lib/storage/opfs.ts` | saveBuffer/extractGameToOPFS/deleteGame |
+| `src/lib/db/indexeddb.ts` | file-storage-poc v2 |
+| `server.mjs` | Static dist + POST `/api/github/import` (private, no-store, stream) |
+
+> 🔒 **Secure:** PAT hanya di `ref()` Vue & header `Authorization` transit ke Node → GitHub, tidak masuk `localStorage/IndexedDB/OPFS/URL`.
 
 ---
 
-## 🗺️ Roadmap
-
-- [x] Upload + extract + play
-- [x] GitHub Release import + proxy CORS
-- [ ] Auto-extract toggle setelah import
-- [ ] Search/filter list + storage cleanup
-- [ ] PWA installable + offline cache
-
-PR welcome!
-
----
-
-## 📄 Lisensi
-
-PoC — bebas untuk eksperimen. Export game GDevelop tetap milik pembuatnya.
+PoC — bebas eksperimen. ✨
