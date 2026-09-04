@@ -704,13 +704,14 @@ EOF
                                     echo "Container not running (ps check fail)"
                                 else
                                     # 3a. Inner check (bypass host port mapping)
-                                    if docker exec "\$CONTAINER_NAME" wget -qO- http://127.0.0.1/health 2>/dev/null | grep -q "ok"; then
+                                    #   /health returns "OK" (uppercase) → grep -qi (case-insensitive)
+                                    if docker exec "\$CONTAINER_NAME" wget -qO- http://127.0.0.1/health 2>/dev/null | grep -qi "ok"; then
                                         echo "Inner wget /health ok"
                                         HEALTH_OK=1
                                         break
                                     fi
                                     # 3b. Host port check (docker-compose.yml ports)
-                                    if curl -sf --max-time 3 --connect-timeout 3 "http://127.0.0.1:\$HEALTH_CHECK_PORT/health" 2>/dev/null | grep -q "ok"; then
+                                    if curl -sf --max-time 3 --connect-timeout 3 "http://127.0.0.1:\$HEALTH_CHECK_PORT/health" 2>/dev/null | grep -qi "ok"; then
                                         echo "Host curl /health ok (port \$HEALTH_CHECK_PORT)"
                                         HEALTH_OK=1
                                         break
@@ -750,7 +751,7 @@ EOF
                                         docker run -d --name "\$CONTAINER_NAME-rollback" -p "127.0.0.1:\$HEALTH_CHECK_PORT:80" "\$PREV_TAG" 2>/dev/null || true
                                     echo "Rollback triggered, waiting 10s for prev container..."
                                     sleep 10
-                                    if docker exec "\$CONTAINER_NAME" wget -qO- http://127.0.0.1/health 2>/dev/null | grep -q "ok" || curl -sf --max-time 3 "http://127.0.0.1:\$HEALTH_CHECK_PORT/health" 2>/dev/null | grep -q "ok"; then
+                                    if docker exec "\$CONTAINER_NAME" wget -qO- http://127.0.0.1/health 2>/dev/null | grep -qi "ok" || curl -sf --max-time 3 "http://127.0.0.1:\$HEALTH_CHECK_PORT/health" 2>/dev/null | grep -qi "ok"; then
                                         echo "Rollback health ok — new deploy marked failed but service restored"
                                     else
                                         echo "Rollback health also failed — manual intervention needed"
