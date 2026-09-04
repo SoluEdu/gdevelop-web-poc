@@ -167,12 +167,14 @@ npm run build    # Vite → dist/
 npm run start    # node server.mjs serve dist + /health + /api/github/import (port 80)
 ```
 
-**Docker** (single container `node:22-alpine`, tanpa nginx / tanpa `ENV` token):
+**Docker** — dua file, runtime sync (guard: stage Jenkins `Validate Dockerfile Sync`):
+- Lokal: `Dockerfile` (multi-stage, build + serve) — `docker build -t poc .` / `docker compose build`
+- Jenkins/Harbor: `Dockerfile.deploy` (COPY `dist/` prebuilt Plan A, tanpa rebuild)
 
 ```bash
 docker build -t poc .
 docker run -p 80:80 poc  # /health OK
-# compose: 127.0.0.1:18530:80 → gdevelop-network
+# compose: ${HOST_BIND:-127.0.0.1}:${HOST_PORT:-18530} → palpatrol (external, dibuat Jenkins)
 ```
 
 ---

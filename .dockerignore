@@ -1,0 +1,32 @@
+node_modules
+# dist needed for Plan A (Jenkins builds dist, Docker COPY dist)
+# dist
+.git
+.gitignore
+.dockerignore
+
+# Docker / CI
+Dockerfile
+docker-compose.yml
+Jenkinsfile
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & Reports
+*.log
+npm-debug.log*
+trivy-fs-report.md
+npm-audit-report.txt
+coverage.out
+
+# Docs
+README.md
+LICENSE

@@ -1,35 +1,37 @@
 services:
   # ── Node — serve dist + POST /api/github/import (OPFS tetap di browser) ──
+  # CONTAINER_NAME / FULL_IMAGE diisi Jenkins via .env (fallback lokal)
   app:
     build: .
     image: ${FULL_IMAGE:-gdevelop-app}
-    container_name: gdevelop-app
+    container_name: ${CONTAINER_NAME:-gdevelop-app}
     restart: always
     expose:
-      - "80"
+      - "${CONTAINER_PORT:-80}"
     env_file:
       - .env
     networks:
-      - gdevelop-network
+      - palpatrol
 
-  # ── Nginx — reverse proxy 80/443 → app:80 ──────────────────────────
+  # ── Nginx — reverse proxy 80 → app:80 ──────────────────────────
+  # 443 aktif hanya jika nginx/nginx-ssl.conf dimount (lihat nginx.conf)
   web:
     image: nginx:1.27-alpine
-    container_name: gdevelop-web-poc-service
+    container_name: ${CONTAINER_NAME:-gdevelop-app}-web
     restart: always
     depends_on:
       - app
     ports:
-      - '127.0.0.1:18530:80'
-      - '127.0.0.1:18531:443'
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-18530}:${CONTAINER_PORT:-80}"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./cert.pem:/etc/nginx/ssl/gdevelop.crt:ro
-      - ./key.pem:/etc/nginx/ssl/gdevelop.key:ro
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # HTTPS: uncomment 2 baris bawah + block 443 di nginx/nginx.conf jika cert ready
+      # - ./nginx/ssl/gdevelop.crt:/etc/nginx/ssl/gdevelop.crt:ro
+      # - ./nginx/ssl/gdevelop.key:/etc/nginx/ssl/gdevelop.key:ro
     networks:
-      - gdevelop-network
+      - palpatrol
 
 networks:
-  gdevelop-network:
-    name: gdevelop-network
+  palpatrol:
+    name: palpatrol
     external: true
