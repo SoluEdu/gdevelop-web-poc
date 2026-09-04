@@ -1,13 +1,31 @@
 services:
-  web:
+  # ── Node — serve dist + POST /api/github/import (OPFS tetap di browser) ──
+  app:
+    build: .
+    image: ${FULL_IMAGE:-gdevelop-app}
+    container_name: gdevelop-app
     restart: always
-    image: ${FULL_IMAGE}
-    ports:
-      - '127.0.0.1:18530:80'
-    tty: true
-    container_name: gdevelop-web-poc-service
+    expose:
+      - "80"
     env_file:
       - .env
+    networks:
+      - gdevelop-network
+
+  # ── Nginx — reverse proxy 80/443 → app:80 ──────────────────────────
+  web:
+    image: nginx:1.27-alpine
+    container_name: gdevelop-web-poc-service
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - '127.0.0.1:18530:80'
+      - '127.0.0.1:18531:443'
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./cert.pem:/etc/nginx/ssl/gdevelop.crt:ro
+      - ./key.pem:/etc/nginx/ssl/gdevelop.key:ro
     networks:
       - gdevelop-network
 
