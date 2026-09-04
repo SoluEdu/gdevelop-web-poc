@@ -410,35 +410,44 @@ pipeline {
         stage('Validate Dockerfile Sync') {
             steps {
                 echo 'Checking Dockerfile vs Dockerfile.deploy runtime sync...'
-                sh """#!/bin/bash
+                // single-quoted: tidak perlu escape ${} $var — apa ada di file, apa ke bash
+                sh('''
                     set -euo pipefail
                     for f in Dockerfile Dockerfile.deploy; do
-                        [ -f "\$f" ] || { echo "❌ missing \$f" >&2; exit 1; }
+                        [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
                     done
-                    # join backslash continuations (HEALTHCHECK spans 2 lines), then pick directives
-                    norm() { awk '{if (/\\\\\$/) {sub(/\\\\\$/," "); printf "%s",\$0; next} print}' "\$1" | grep -E '^(FROM|EXPOSE|HEALTHCHECK|CMD|WORKDIR)' || true; }
+                    # join backslash continuations, then pick directives
+                    norm() { awk '{ if (/\\$/) { sub(/\\$/," ",$0); printf "%s",$0; next } print }' "$1" | grep -E "^(FROM|EXPOSE|HEALTHCHECK|CMD|WORKDIR)" || true; }
                     norm Dockerfile > .docker-base.txt
                     norm Dockerfile.deploy > .docker-deploy.txt
                     check() { # $1=label $2=pattern
-                        a=\$(grep -E "^\$2" .docker-base.txt | tail -n 1 || true)
-                        b=\$(grep -E "^\$2" .docker-deploy.txt | tail -n 1 || true)
-                        # FROM: bandingkan image saja (abaikan 'AS build')
-                        if [ "\$2" = "FROM" ]; then
-                            a=\$(echo "\$a" | awk '{print \$2}')
-                            b=\$(echo "\$b" | awk '{print \$2}')
+                        a=$(grep -E "^$2" .docker-base.txt | tail -n 1 || true)
+                        b=$(grep -E "^$2" .docker-deploy.txt | tail -n 1 || true)
+                        if [ "$2" = "FROM" ]; then
+                            a=$(echo "$a" | awk "{print \$2}")
+                            b=$(echo "$b" | awk "{print \$2}")
                         fi
-                        if [ -z "\$a" ] || [ -z "\$b" ]; then
-                            echo "❌ \$1 hilang (base='\${a:-none}' deploy='\${b:-none}')" >&2
+                        if [ -z "$a" ] || [ -z "$b" ]; then
+                            echo "missing $1 (base='${a:-none}' deploy='${b:-none}')" >&2
                             exit 1
                         fi
-                        if [ "\$a" != "\$b" ]; then
-                            echo "❌ drift \$1:" >&2
-                            echo "  Dockerfile        : \$a" >&2
-                            echo "  Dockerfile.deploy : \$b" >&2
+                        if [ "$a" != "$b" ]; then
+                            echo "drift $1:" >&2
+                            echo "  Dockerfile        : $a" >&2
+                            echo "  Dockerfile.deploy : $b" >&2
                             exit 1
                         fi
-                        echo "✅ \$1 sync: \$a"
+                        echo "sync $1: $a"
                     }
+                    check "FROM base image" "FROM"
+                    check "WORKDIR" "WORKDIR"
+                    check "EXPOSE" "EXPOSE"
+                    check "HEALTHCHECK" "HEALTHCHECK"
+                    check "CMD" "CMD"
+                    grep -q "server.mjs" Dockerfile || { echo "Dockerfile missing server.mjs" >&2; exit 1; }
+                    grep -q "server.mjs" Dockerfile.deploy || { echo "Dockerfile.deploy missing server.mjs" >&2; exit 1; }
+                    echo "sync server.mjs"
+                ''')
                     check "FROM base image" "FROM"
                     check "WORKDIR" "WORKDIR"
                     check "EXPOSE" "EXPOSE"
