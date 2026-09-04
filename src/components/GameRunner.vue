@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import type { StoredFile } from '../lib/db/indexeddb';
+import ContentInfoModal from './ContentInfoModal.vue';
+import QaTodoDrawer from './QaTodoDrawer.vue';
+import { getGameInfo } from '../lib/gameInfo/parse';
+import type { GameInfo } from '../lib/gameInfo/parse';
+import { loadQa, saveQa, progress as qaProgress } from '../lib/qa/todoStore';
+import type { QaState } from '../lib/qa/todoStore';
 const props = defineProps<{ game: StoredFile }>();
 const emit = defineEmits<{ (e:'close'):void }>();
 const iframe = ref<HTMLIFrameElement|null>(null);
@@ -9,6 +15,33 @@ const iframeSrc = ref('');
 const swStatus = ref<'waiting'|'ready'|'error'>('waiting');
 const swError = ref('');
 const gameUrl = `/games/${props.game.id}/index.html`;
+
+// ── info / qa state ───────────────────────────────────────────────────────
+const showInfo = ref(false);
+const showQa = ref(false);
+const showFloating = ref(true); // hide/unhide floating when fullscreen
+const gameInfo = ref<GameInfo | null>(null);
+const infoLoading = ref(false);
+const infoError = ref('');
+const qaState = ref<QaState>(loadQa(props.game.id));
+const qaProg = computed(()=> qaProgress(qaState.value));
+watch(qaState, (v)=> saveQa(props.game.id, v), { deep: true });
+
+async function openInfo(){
+  showInfo.value = true;
+  if (gameInfo.value || infoLoading.value) return;
+  infoLoading.value = true; infoError.value='';
+  try {
+    const info = await getGameInfo(props.game.id);
+    if (!info) infoError.value = 'data.js tidak ditemukan — pastikan sudah Extract.';
+    else gameInfo.value = info;
+  } catch(e){ infoError.value = (e as Error).message; }
+  finally { infoLoading.value=false; }
+}
+function openQa(){ showQa.value=true; showFloating.value=true; }
+function handleOpenQaFromInfo(){ showInfo.value=false; openQa(); }
+function handleOpenInfoFromQa(){ openInfo(); }
+watch(showQa, v=>{ if(v && !gameInfo.value && !infoLoading.value) openInfo(); });
 
 // ── in-app console ──────────────────────────────────────────────────────────
 interface LogEntry { id:number; level:'log'|'warn'|'error'|'info'|'debug'; text:string; time:string; }
@@ -84,9 +117,15 @@ onMounted(async ()=>{
 });
 function close(){ if(iframe.value) iframe.value.src='about:blank'; emit('close'); }
 async function toggleFullscreen(){
-  if (!document.fullscreenElement){ await iframe.value?.requestFullscreen?.(); isFullscreen.value=true; }
+  // fullscreen the runner container so floating panels stay visible & toggleable
+  const runnerEl = document.querySelector('.runner') as HTMLElement | null;
+  const target: any = runnerEl || iframe.value;
+  if (!document.fullscreenElement){ await target?.requestFullscreen?.(); isFullscreen.value=true; }
   else { await document.exitFullscreen?.(); isFullscreen.value=false; }
 }
+function onFsChange(){ isFullscreen.value = !!document.fullscreenElement; }
+onMounted(()=> document.addEventListener('fullscreenchange', onFsChange));
+onBeforeUnmount(()=> document.removeEventListener('fullscreenchange', onFsChange));
 function openInNewTab(){ window.open(gameUrl,'_blank'); }
 </script>
 <template>
@@ -95,6 +134,11 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
       <div class="header">
         <div class="title"><span class="icon">🎮</span><div><span class="name">{{ game.name }}</span><span v-if="game.entryCount" class="meta">{{ game.entryCount }} files</span></div></div>
         <div class="actions">
+          <button class="btn-icon" :class="{ active: showInfo }" title="Info konten (package, deskripsi)" @click="openInfo">ⓘ</button>
+          <button class="btn-icon" :class="{ active: showQa }" title="QA Checklist" @click="showQa=!showQa">
+            <span>☑</span>
+            <span v-if="qaProg.total" class="qa-dot">{{ qaProg.done }}/{{ qaProg.total }}</span>
+          </button>
           <button class="btn-icon" :class="{ active: showConsole }" title="Toggle console (logs from game)" @click="showConsole=!showConsole">
             <span>◧</span>
             <span v-if="errorCount" class="err-dot">{{ errorCount }}</span>
@@ -110,8 +154,23 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
           <div v-if="swStatus==='waiting'" class="sw-overlay"><div class="spinner"/><p>Waiting for Service Worker…</p></div>
           <div v-else-if="swStatus==='error'" class="sw-overlay error"><p>⚠ {{ swError }}</p><p class="hint">Make sure app is served over HTTPS and SW is registered.</p></div>
           <iframe v-else ref="iframe" :src="iframeSrc" :title="game.name" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups" @load="handleIframeLoad" />
+
+          <!-- floating QA drawer — overlay, hide/unhide in fullscreen -->
+          <QaTodoDrawer
+            v-if="showQa && showFloating"
+            v-model="qaState"
+            :game-name="game.name"
+            :package-name="gameInfo?.packageName"
+            :floating="true"
+            @close="showQa=false"
+            @openInfo="handleOpenInfoFromQa"
+          />
+          <!-- fullscreen toggle for floating panels -->
+          <button v-if="isFullscreen && (showQa || showConsole)" class="fs-toggle" @click="showFloating=!showFloating" :title="showFloating ? 'Hide panels' : 'Show panels'">
+            {{ showFloating ? '⟡ Hide' : '⟡ Show' }}
+          </button>
           <!-- overlay console — absolute, tidak merubah ukuran game -->
-          <div v-if="showConsole && consoleMode==='overlay'" class="console console--overlay" :class="`pos-${consolePos}`">
+          <div v-if="showConsole && consoleMode==='overlay' && showFloating" class="console console--overlay" :class="`pos-${consolePos}`">
             <div class="console-header" @click="showConsole=false" title="Collapse">
               <div class="console-title">
                 <span>◧ Console</span>
@@ -151,8 +210,8 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
           </div>
         </div>
 
-        <!-- docked console — fixed, merubah ukuran game -->
-        <div v-if="showConsole && consoleMode==='docked'" class="console console--docked" :class="`pos-${consolePos}`">
+        <!-- docked console — fixed, merubah ukuran game (hidden when floating hidden in fullscreen) -->
+        <div v-if="showConsole && consoleMode==='docked' && (!isFullscreen || showFloating)" class="console console--docked" :class="`pos-${consolePos}`">
           <div class="console-header">
             <div class="console-title">
               <span>◧ Console</span>
@@ -192,8 +251,10 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
         </div>
       </div>
 
-      <div class="footer"><span class="url mono">{{ gameUrl }}</span><span class="hint">Served from OPFS via Service Worker · Press Esc to close · Console: {{ consoleMode }} {{ consolePos }}</span></div>
+      <div class="footer"><span class="url mono">{{ gameUrl }}</span><span class="hint">Served from OPFS via Service Worker · Press Esc to close · QA {{ qaProg.done }}/{{ qaProg.total }} · Console: {{ consoleMode }} {{ consolePos }}</span></div>
     </div>
+    <!-- Center Info modal -->
+    <ContentInfoModal v-if="showInfo" :game="game" :info="gameInfo" :loading="infoLoading" :error="infoError" @close="showInfo=false" @openQa="handleOpenQaFromInfo" />
   </div>
 </template>
 <style scoped>
@@ -225,9 +286,12 @@ iframe{width:100%;height:100%;border:none;display:block}
 .hint{font-size:0.72rem;color:var(--text-muted);white-space:nowrap;flex-shrink:0}
 .mono{font-family:monospace}
 
-/* ── console ── */
+/* ── qa / console ── */
 .btn-icon.active{ background: var(--border); color: var(--text); position: relative; }
+.qa-dot{ position: absolute; top: -6px; right: -6px; background: #3b82f6; color: #fff; font-size: 0.55rem; font-weight: 700; min-width: 22px; height: 16px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
 .err-dot{ position: absolute; top: -6px; right: -6px; background: #dc2626; color: #fff; font-size: 0.6rem; font-weight: 700; min-width: 16px; height: 16px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
+.fs-toggle{ position:absolute; bottom:0.5rem; left:0.5rem; z-index:13; background:#0f1117; border:1px solid var(--border); color:var(--text); border-radius:999px; padding:0.25rem 0.6rem; font-size:0.7rem; font-weight:700; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5); }
+.fs-toggle:hover{ background:var(--border); }
 /* accordion — overlay vs docked */
 .console{ display: flex; flex-direction: column; border-top: 1px solid var(--border); background: #0a0c12; }
 /* overlay — absolute, tidak merubah ukuran game (default) */
