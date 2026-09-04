@@ -448,15 +448,6 @@ pipeline {
                     grep -q "server.mjs" Dockerfile.deploy || { echo "Dockerfile.deploy missing server.mjs" >&2; exit 1; }
                     echo "sync server.mjs"
                 ''')
-                    check "FROM base image" "FROM"
-                    check "WORKDIR" "WORKDIR"
-                    check "EXPOSE" "EXPOSE"
-                    check "HEALTHCHECK" "HEALTHCHECK"
-                    check "CMD" "CMD"
-                    grep -q 'server.mjs' Dockerfile || { echo "❌ Dockerfile tak copy server.mjs" >&2; exit 1; }
-                    grep -q 'server.mjs' Dockerfile.deploy || { echo "❌ Dockerfile.deploy tak copy server.mjs" >&2; exit 1; }
-                    echo "✅ server.mjs sync"
-                """
             }
             post {
                 always {
