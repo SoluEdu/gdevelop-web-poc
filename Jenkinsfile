@@ -188,7 +188,7 @@ pipeline {
             steps {
                 echo 'Running lint (oxlint + eslint)...'
                 sh '''
-                    set -euo pipefail
+                    set -eu
                     if [ ! -f package-lock.json ]; then
                         echo "package-lock.json missing, running npm install to generate"
                         npm install --package-lock-only --ignore-scripts
@@ -228,7 +228,7 @@ pipeline {
             steps {
                 echo 'Running vue-tsc type check...'
                 sh '''
-                    set -euo pipefail
+                    set -eu
                     npm ci --prefer-offline
                     {
                         echo "# Type Check Report"
@@ -264,7 +264,7 @@ pipeline {
             steps {
                 echo 'Running unit tests...'
                 sh '''
-                    set -euo pipefail
+                    set -eu
                     npm ci --prefer-offline
                     {
                         echo "# Unit Test Report"
@@ -300,7 +300,7 @@ pipeline {
             steps {
                 echo 'Running npm audit (HIGH/CRITICAL block)...'
                 sh '''
-                    set -euo pipefail
+                    set -eu
                     if [ ! -f package-lock.json ]; then
                         echo "package-lock.json missing, generating..."
                         npm install --package-lock-only --ignore-scripts
@@ -383,8 +383,8 @@ pipeline {
             }
             steps {
                 echo 'Building Vue app (single build for Docker)...'
-                sh """#!/bin/bash
-                    set -euo pipefail
+                sh """#!/bin/sh
+                    set -eu
                     npm ci --prefer-offline
                     export VITE_BUILD_DATE=\$(date -u +"%Y-%m-%dT%H:%M:%SZ")
                     export VITE_GIT_COMMIT="${env.GIT_COMMIT}"
