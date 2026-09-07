@@ -153,64 +153,66 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
       </div>
       <!-- body: iframe + console (docked) ─────────────────────────────── -->
       <div class="body" :class="[`pos-${consolePos}`, `mode-${consoleMode}`, { 'has-docked': showConsole && consoleMode==='docked' }]">
-        <div class="iframe-wrap">
-          <div v-if="swStatus==='waiting'" class="sw-overlay"><div class="spinner"/><p>Waiting for Service Worker…</p></div>
-          <div v-else-if="swStatus==='error'" class="sw-overlay error"><p>⚠ {{ swError }}</p><p class="hint">Make sure app is served over HTTPS and SW is registered.</p></div>
-          <iframe v-else ref="iframe" :src="iframeSrc" :title="game.name" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups" @load="handleIframeLoad" />
-
-          <!-- Screen recorder overlay — full size, hide/unhide with floating -->
+        <div class="main-column">
+          <!-- Screen recorder top bar — sits ABOVE iframe content (non-overlaying) -->
           <ScreenRecorder v-if="showRec" :game-name="game.name" :class="{ 'hidden-floating': isFullscreen && !showFloating }" />
 
-          <!-- floating QA drawer — overlay, hide/unhide in fullscreen -->
-          <QaTodoDrawer
-            v-if="showQa && showFloating"
-            v-model="qaState"
-            :game-name="game.name"
-            :package-name="gameInfo?.packageName"
-            :floating="true"
-            @close="showQa=false"
-            @openInfo="handleOpenInfoFromQa"
-          />
-          <!-- fullscreen toggle for floating panels -->
-          <button v-if="isFullscreen && (showQa || showConsole || showRec)" class="fs-toggle" @click="showFloating=!showFloating" :title="showFloating ? 'Hide panels' : 'Show panels'">
-            {{ showFloating ? '⟡ Hide' : '⟡ Show' }}
-          </button>
-          <!-- overlay console — absolute, tidak merubah ukuran game -->
-          <div v-if="showConsole && consoleMode==='overlay' && showFloating" class="console console--overlay" :class="`pos-${consolePos}`">
-            <div class="console-header" @click="showConsole=false" title="Collapse">
-              <div class="console-title">
-                <span>◧ Console</span>
-                <span v-if="logs.length" class="console-count">{{ filteredLogs.length }}/{{ logs.length }}</span>
-                <span v-if="errorCount" class="console-badge err">{{ errorCount }} errors</span>
-                <span class="console-hint">{{ consolePos==='right' ? 'overlay · samping' : 'overlay · bawah' }}</span>
-              </div>
-              <div class="console-actions" @click.stop>
-                <div class="seg">
-                  <button class="seg-btn" :class="{on: consolePos==='bottom'}" @click="consolePos='bottom'" title="Pindah ke bawah">▭ Bottom</button>
-                  <button class="seg-btn" :class="{on: consolePos==='right'}" @click="consolePos='right'" title="Pindah ke samping">▯ Side</button>
+          <div class="iframe-wrap">
+            <div v-if="swStatus==='waiting'" class="sw-overlay"><div class="spinner"/><p>Waiting for Service Worker…</p></div>
+            <div v-else-if="swStatus==='error'" class="sw-overlay error"><p>⚠ {{ swError }}</p><p class="hint">Make sure app is served over HTTPS and SW is registered.</p></div>
+            <iframe v-else ref="iframe" :src="iframeSrc" :title="game.name" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups" @load="handleIframeLoad" />
+
+            <!-- floating QA drawer — overlay, hide/unhide in fullscreen -->
+            <QaTodoDrawer
+              v-if="showQa && showFloating"
+              v-model="qaState"
+              :game-name="game.name"
+              :package-name="gameInfo?.packageName"
+              :floating="true"
+              @close="showQa=false"
+              @openInfo="handleOpenInfoFromQa"
+            />
+            <!-- fullscreen toggle for floating panels -->
+            <button v-if="isFullscreen && (showQa || showConsole || showRec)" class="fs-toggle" @click="showFloating=!showFloating" :title="showFloating ? 'Hide panels' : 'Show panels'">
+              {{ showFloating ? '⟡ Hide' : '⟡ Show' }}
+            </button>
+            <!-- overlay console — absolute, tidak merubah ukuran game -->
+            <div v-if="showConsole && consoleMode==='overlay' && showFloating" class="console console--overlay" :class="`pos-${consolePos}`">
+              <div class="console-header" @click="showConsole=false" title="Collapse">
+                <div class="console-title">
+                  <span>◧ Console</span>
+                  <span v-if="logs.length" class="console-count">{{ filteredLogs.length }}/{{ logs.length }}</span>
+                  <span v-if="errorCount" class="console-badge err">{{ errorCount }} errors</span>
+                  <span class="console-hint">{{ consolePos==='right' ? 'overlay · samping' : 'overlay · bawah' }}</span>
                 </div>
-                <div class="seg">
-                  <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='overlay'}" @click="consoleMode='overlay'" title="Overlay — tidak merubah ukuran game">Overlay</button>
-                  <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='docked'}" @click="consoleMode='docked'" title="Docked — merubah ukuran game (fixed)">Docked</button>
+                <div class="console-actions" @click.stop>
+                  <div class="seg">
+                    <button class="seg-btn" :class="{on: consolePos==='bottom'}" @click="consolePos='bottom'" title="Pindah ke bawah">▭ Bottom</button>
+                    <button class="seg-btn" :class="{on: consolePos==='right'}" @click="consolePos='right'" title="Pindah ke samping">▯ Side</button>
+                  </div>
+                  <div class="seg">
+                    <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='overlay'}" @click="consoleMode='overlay'" title="Overlay — tidak merubah ukuran game">Overlay</button>
+                    <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='docked'}" @click="consoleMode='docked'" title="Docked — merubah ukuran game (fixed)">Docked</button>
+                  </div>
+                  <select v-model="filter" class="console-filter">
+                    <option value="all">All</option>
+                    <option value="log">Log</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warn</option>
+                    <option value="error">Error</option>
+                  </select>
+                  <button class="btn-console" @click="copyLogs" title="Copy logs">⧉ Copy</button>
+                  <button class="btn-console" @click="clearLogs" title="Clear">Clear</button>
+                  <button class="btn-console close" @click="showConsole=false" title="Collapse">⌄</button>
                 </div>
-                <select v-model="filter" class="console-filter">
-                  <option value="all">All</option>
-                  <option value="log">Log</option>
-                  <option value="info">Info</option>
-                  <option value="warn">Warn</option>
-                  <option value="error">Error</option>
-                </select>
-                <button class="btn-console" @click="copyLogs" title="Copy logs">⧉ Copy</button>
-                <button class="btn-console" @click="clearLogs" title="Clear">Clear</button>
-                <button class="btn-console close" @click="showConsole=false" title="Collapse">⌄</button>
               </div>
-            </div>
-            <div class="console-body">
-              <div v-if="filteredLogs.length===0" class="console-empty">{{ logs.length===0 ? 'No logs yet — run the game to see output' : 'No logs for this filter' }}</div>
-              <div v-for="l in filteredLogs" :key="l.id" class="log-row" :class="l.level">
-                <span class="log-time">{{ l.time }}</span>
-                <span class="log-level">{{ l.level }}</span>
-                <span class="log-text">{{ l.text }}</span>
+              <div class="console-body">
+                <div v-if="filteredLogs.length===0" class="console-empty">{{ logs.length===0 ? 'No logs yet — run the game to see output' : 'No logs for this filter' }}</div>
+                <div v-for="l in filteredLogs" :key="l.id" class="log-row" :class="l.level">
+                  <span class="log-time">{{ l.time }}</span>
+                  <span class="log-level">{{ l.level }}</span>
+                  <span class="log-text">{{ l.text }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -278,8 +280,9 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
 .body{ flex:1; display:flex; overflow:hidden; min-height:0; position:relative; }
 .body.pos-bottom{ flex-direction:column; }
 .body.pos-right{ flex-direction:row; }
-.body.has-docked.pos-bottom .iframe-wrap{ flex:1; min-height:0; }
-.body.has-docked.pos-right .iframe-wrap{ flex:1; min-width:0; }
+.main-column{ flex:1; display:flex; flex-direction:column; overflow:hidden; min-height:0; min-width:0; position:relative; }
+.body.has-docked.pos-bottom .main-column{ flex:1; min-height:0; }
+.body.has-docked.pos-right .main-column{ flex:1; min-width:0; }
 .iframe-wrap{flex:1;overflow:hidden;background:#000;position:relative; min-height:0; min-width:0; }
 iframe{width:100%;height:100%;border:none;display:block}
 .sw-overlay{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:var(--text-muted);font-size:0.9rem}

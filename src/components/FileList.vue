@@ -59,6 +59,7 @@ function closeRead(){
   readTarget.value=null;
 }
 async function handleExtract(meta: StoredFile){
+  if (extractingId.value) return;
   extractingId.value=meta.id; extractProgress.value=0; extractTotal.value=0;
   try {
     const zipFile = await opfsGet(meta.id);
@@ -75,6 +76,7 @@ async function handleExtract(meta: StoredFile){
 }
 function handlePlay(meta: StoredFile){ runningGame.value = meta; }
 async function handleDelete(meta: StoredFile){
+  if (extractingId.value) return;
   const hasGame = meta.extracted;
   const msg = hasGame
     ? `Delete "${meta.name}"?\n\nThis will remove:\n• OPFS uploads/${meta.id}.zip\n• OPFS games/${meta.id}/ (extracted files)\n• IndexedDB record`
@@ -94,6 +96,16 @@ async function handleDelete(meta: StoredFile){
 }
 function formatDate(ts:number){ return new Date(ts).toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'2-digit'}); }
 const extractPercent = computed(()=> extractTotal.value>0 ? Math.round((extractProgress.value/extractTotal.value)*100) : 0);
+
+// Reusable extraction state helpers
+const isExtractDisabled = (fileId?: string) => !!extractingId.value;
+const isPlayDisabled = (fileId?: string) => !!extractingId.value || deletingId.value === fileId;
+const getExtractTitle = (fileId?: string, isReExtract = false) => {
+  if (extractingId.value) {
+    return extractingId.value !== fileId ? 'Proses ekstraksi lain sedang berjalan' : '';
+  }
+  return isReExtract ? 'Ekstrak ulang file dari ZIP' : '';
+};
 
 defineExpose({ reload });
 </script>
@@ -119,9 +131,12 @@ defineExpose({ reload });
               </td>
               <td class="actions">
                 <button class="btn-sm read" @click="handleRead(file)">Read</button>
-                <button v-if="file.extracted" class="btn-sm play" @click="handlePlay(file)">▶ Play</button>
-                <button v-else class="btn-sm extract" @click="handleExtract(file)" :disabled="extractingId===file.id">{{ extractingId===file.id ? `${extractPercent}%` : 'Extract' }}</button>
-                <button class="btn-sm del" @click="handleDelete(file)" :disabled="deletingId===file.id">{{ deletingId===file.id ? '…' : 'Delete' }}</button>
+                <template v-if="file.extracted">
+                  <button class="btn-sm play" @click="handlePlay(file)" :disabled="isPlayDisabled(file.id)" :title="extractingId ? 'Proses ekstraksi sedang berjalan' : ''">▶ Play</button>
+                  <button class="btn-sm reextract" @click="handleExtract(file)" :disabled="isExtractDisabled(file.id)" :title="getExtractTitle(file.id, true)">{{ extractingId===file.id ? `${extractPercent}%` : '🔄 Re-Extract' }}</button>
+                </template>
+                <button v-else class="btn-sm extract" @click="handleExtract(file)" :disabled="isExtractDisabled(file.id)" :title="getExtractTitle(file.id, false)">{{ extractingId===file.id ? `${extractPercent}%` : 'Extract' }}</button>
+                <button class="btn-sm del" @click="handleDelete(file)" :disabled="deletingId===file.id || isExtractDisabled(file.id)">{{ deletingId===file.id ? '…' : 'Delete' }}</button>
               </td>
             </tr>
             <tr v-if="extractingId===file.id && extractTotal>0" class="progress-row">
@@ -153,7 +168,11 @@ defineExpose({ reload });
           <div class="read-row"><span>Size</span><span class="mono">{{ formatBytes(readTarget.size) }}</span></div>
           <div class="read-row"><span>Readable</span><span class="badge ok">{{ readReadable ? 'YES' : 'NO' }}</span></div>
           <div class="read-row"><span>In OPFS</span><span class="badge ok">{{ readInOPFS ? 'YES' : 'NO' }}</span></div>
-          <div v-if="readTarget.extracted" class="read-row"><span>Extracted</span><span class="badge ok">YES — {{ readTarget.entryCount }} files</span></div>
+          <div v-if="readTarget.extracted" class="read-row">
+            <span>Extracted</span>
+            <span class="badge ok">YES — {{ readTarget.entryCount }} files</span>
+            <button class="btn-sm reextract" @click="handleExtract(readTarget)" :disabled="isExtractDisabled(readTarget.id)" :title="getExtractTitle(readTarget.id, true)">🔄 Re-Extract</button>
+          </div>
         </div>
         <a v-if="downloadUrl" class="btn-download" :href="downloadUrl" :download="readTarget.name">⬇ Download ZIP</a>
         <div v-if="readEntries.length>0" class="entries">
@@ -192,6 +211,8 @@ tr:last-child td { border-bottom: none; }
 .btn-sm.read:hover { background: #3b82f633; }
 .btn-sm.extract { background: #d9770622; color: #d97706; border-color: #d9770644; min-width: 58px; text-align: center; }
 .btn-sm.extract:hover:not(:disabled) { background: #d9770633; }
+.btn-sm.reextract { background: #d9770618; color: #f59e0b; border-color: #d9770644; }
+.btn-sm.reextract:hover:not(:disabled) { background: #d9770630; }
 .btn-sm.play { background: #16a34a22; color: #16a34a; border-color: #16a34a44; }
 .btn-sm.play:hover { background: #16a34a33; }
 .btn-sm.del { background: #dc262622; color: #dc2626; border-color: #dc262644; }

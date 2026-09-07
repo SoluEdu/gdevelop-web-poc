@@ -61,6 +61,19 @@ function pos(e: PointerEvent){
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
+const vAutofocus = {
+  mounted(el: HTMLElement) {
+    setTimeout(() => {
+      if (el instanceof HTMLInputElement) {
+        try {
+          el.focus();
+          el.select();
+        } catch {}
+      }
+    }, 30);
+  }
+};
+
 function onPointerDown(e: PointerEvent){
   if (!ctx || !canvasRef.value) { if (!ctx) resizeCanvas(); if (!ctx) return; }
   // Prevent creating new text box or starting drawing when interacting with text popups / inputs / buttons
@@ -71,10 +84,6 @@ function onPointerDown(e: PointerEvent){
     const p = pos(e);
     const id = ++textId;
     texts.value.push({ id, x:p.x, y:p.y, text:'Tulis pesan bug...', color: color.value, editing:true });
-    nextTick(()=> {
-      const el = document.getElementById('tbox-'+id) as HTMLInputElement | null;
-      el?.focus(); el?.select();
-    });
     return;
   }
   isDrawing.value = true;
@@ -213,12 +222,10 @@ async function startRecording(){
     const vidTrack = stream.getVideoTracks()[0];
     vidTrack?.addEventListener('ended', ()=> { if (isRecording.value) stopRecording(); });
 
-    // Determine recording MIME type:
     let mime = targetMime.value;
     isDirectNativeRecord = isNativeCodecSupported.value;
 
     if (!isDirectNativeRecord) {
-      // Fallback native recording codec
       mime = isMimeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9'
            : isMimeSupported('video/webm') ? 'video/webm'
            : 'video/mp4';
@@ -233,13 +240,11 @@ async function startRecording(){
         const requestedExt = (exportFormat.value === 'mp4' || targetMime.value.includes('mp4')) ? 'mp4' : 'webm';
 
         if (isDirectNativeRecord) {
-          // Native MediaRecorder recording supported directly!
           recBlob.value = rawBlob;
           activeFormatExt.value = requestedExt;
           if (recUrl.value) try{ URL.revokeObjectURL(recUrl.value);}catch{}
           recUrl.value = URL.createObjectURL(rawBlob);
         } else if (requestedExt === 'mp4') {
-          // Perform browser-side transcoding (WebM → MP4) via WebCodecs + mp4-muxer
           isTranscoding.value = true;
           transcodeProg.value = { percent: 0, currentFrame: 0, totalFrames: 0 };
           try {
@@ -353,22 +358,11 @@ onBeforeUnmount(()=>{
 </script>
 
 <template>
-  <div class="rec-root">
-    <!-- Fullscreen overlay canvas + text boxes — behind toolbar -->
-    <div v-if="showOverlay" ref="overlayRef" class="draw-overlay" @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp">
-      <canvas ref="canvasRef" class="draw-canvas"></canvas>
-      <div v-for="t in texts" :key="t.id" class="tbox" :style="{ left: t.x+'px', top: t.y+'px', borderColor: t.color }" @pointerdown.stop>
-        <input v-if="t.editing" :id="'tbox-'+t.id" :value="t.text" @input="updateText(t.id, ($event.target as HTMLInputElement).value)" @blur="t.editing=false" @keydown.enter="t.editing=false" @keydown.escape="t.editing=false" class="tinput" :style="{ color: t.color, borderColor: t.color }" @pointerdown.stop />
-        <span v-else @click.stop="t.editing=true" tabindex="0" class="tspan" :style="{ color: t.color }" @pointerdown.stop>{{ t.text }}</span>
-        <button class="tclose" @click.stop="deleteText(t.id)" @pointerdown.stop>✕</button>
-      </div>
-      <div class="overlay-hint">Mode {{ tool }} — gambar di atas konten akan ikut terekam. Klik ✎ atau Ctrl+D untuk hide.</div>
-    </div>
-
-    <!-- Toolbar — on top of overlay, always visible -->
+  <div class="rec-topbar">
+    <!-- Toolbar — sits ABOVE the content iframe (non-overlaying top bar) -->
     <div class="rec-toolbar">
       <div class="rec-main">
-        <button v-if="!isRecording" class="btn-rec" @click="startRecording" :disabled="isTranscoding" title="Mulai rekam layar (akan minta izin browser)">● Rec</button>
+        <button v-if="!isRecording" class="btn-rec" @click="startRecording" :disabled="isTranscoding" title="Mulai rekam layar">● Rec</button>
         <button v-else class="btn-rec stop" @click="stopRecording" title="Stop rekaman">■ Stop {{ fmtTime(recTime) }}</button>
         <span v-if="isRecording" class="rec-dot" title="Recording"></span>
       </div>
@@ -381,7 +375,7 @@ onBeforeUnmount(()=>{
           <option value="custom">Custom Codec</option>
         </select>
         <input v-if="exportFormat==='custom'" v-model="customMime" placeholder="video/mp4;codecs=avc1" class="inp-custom" title="Masukkan custom MIME string" />
-        <span class="fmt-badge" :class="isNativeCodecSupported ? 'native' : 'transcode'" :title="isNativeCodecSupported ? 'Supported natively by MediaRecorder' : 'MediaRecorder not supported natively — will use in-browser transcoding'">
+        <span class="fmt-badge" :class="isNativeCodecSupported ? 'native' : 'transcode'">
           {{ isNativeCodecSupported ? '✓ Native' : '⚡ Browser Transcode' }}
         </span>
       </div>
@@ -416,23 +410,32 @@ onBeforeUnmount(()=>{
         <video :src="recUrl" class="preview" controls muted playsinline title="Preview rekaman"></video>
       </div>
     </div>
-    <div v-if="recError" class="rec-error">⚠ {{ recError }}</div>
+
+    <!-- Draw overlay canvas — Teleported into .iframe-wrap so drawing covers the game iframe -->
+    <Teleport to=".iframe-wrap">
+      <div v-if="showOverlay" ref="overlayRef" class="draw-overlay" @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp">
+        <canvas ref="canvasRef" class="draw-canvas"></canvas>
+        <div v-for="t in texts" :key="t.id" class="tbox" :style="{ left: t.x+'px', top: t.y+'px', borderColor: t.color }" @pointerdown.stop>
+          <input v-if="t.editing" v-autofocus :id="'tbox-'+t.id" :value="t.text" @input="updateText(t.id, ($event.target as HTMLInputElement).value)" @blur="t.editing=false" @keydown.enter="t.editing=false" @keydown.escape="t.editing=false" class="tinput" :style="{ color: t.color, borderColor: t.color }" @pointerdown.stop />
+          <span v-else @click.stop="t.editing=true" tabindex="0" class="tspan" :style="{ color: t.color }" @pointerdown.stop>{{ t.text }}</span>
+          <button class="tclose" @click.stop="deleteText(t.id)" @pointerdown.stop>✕</button>
+        </div>
+        <div class="overlay-hint">Mode {{ tool }} — gambar di atas konten akan ikut terekam. Klik ✎ atau Ctrl+D untuk hide.</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-.rec-root{
-  position:absolute; inset:0;
-  display:flex; flex-direction:column;
-  pointer-events:none; z-index:12;
+.rec-topbar{
+  position:relative; z-index:15;
+  width:100%; flex-shrink:0;
+  background:#0f1117; border-bottom:1px solid var(--border);
+  box-shadow:0 4px 16px rgba(0,0,0,0.4);
 }
 .rec-toolbar{
-  pointer-events:auto;
-  position:relative; z-index:20;
   display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;
-  background:#0f1117; border:1px solid var(--border); border-radius:8px;
-  padding:0.4rem 0.6rem; margin:0.5rem;
-  box-shadow:0 8px 24px rgba(0,0,0,0.6);
+  padding:0.4rem 0.6rem;
 }
 .rec-main{ display:flex; align-items:center; gap:0.4rem; }
 .btn-rec{ background:#dc2626; color:#fff; border:none; border-radius:999px; padding:0.35rem 0.8rem; font-weight:800; font-size:0.78rem; cursor:pointer; }
