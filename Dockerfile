@@ -1,7 +1,7 @@
 # ==============================================
 # Stage 1: Build (Vue + Vite)
 # ==============================================
-FROM node:22.15.0-alpine AS build
+FROM node:22.23.2-alpine3.24 AS build
 
 WORKDIR /app
 
@@ -22,9 +22,25 @@ RUN npm run build
 # Node sebagai handler untuk mendownload import dari GitHub,
 # lalu tetap simpan di OPFS (OPFS tetap di browser).
 # ==============================================
-FROM node:22.15.0-alpine
+FROM node:22.23.2-alpine3.24
 
 WORKDIR /app
+
+# Patch OS libs (openssl/musl/zlib) + buang npm/yarn/corepack:
+# runtime hanya butuh `node server.mjs`, jadi package manager bawaan
+# image (sumber 38 temuan node-pkg: tar/brace-expansion/minimatch/dll)
+# dihapus total, bukan sekadar diupgrade.
+RUN apk update && apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm \
+              /usr/local/lib/node_modules/corepack \
+              /opt/yarn* \
+              /usr/local/bin/yarn* \
+              /usr/local/bin/yarnpkg \
+              /usr/local/bin/npm \
+              /usr/local/bin/npx \
+              /usr/local/bin/corepack \
+              /var/cache/apk/* \
+    && node --version
 
 # No GitHub credentials in image — token transit only
 COPY --from=build /app/dist ./dist

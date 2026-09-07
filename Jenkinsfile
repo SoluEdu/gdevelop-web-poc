@@ -178,7 +178,7 @@ pipeline {
         stage('Lint') {
             agent {
                 docker {
-                    image 'node:22.15.0-alpine'
+                    image 'node:22.23.2-alpine3.24'
                     reuseNode true
                 }
             }
@@ -218,7 +218,7 @@ pipeline {
         stage('Type Check') {
             agent {
                 docker {
-                    image 'node:22.15.0-alpine'
+                    image 'node:22.23.2-alpine3.24'
                     reuseNode true
                 }
             }
@@ -254,7 +254,7 @@ pipeline {
         stage('Unit Test') {
             agent {
                 docker {
-                    image 'node:22.15.0-alpine'
+                    image 'node:22.23.2-alpine3.24'
                     reuseNode true
                 }
             }
@@ -290,7 +290,7 @@ pipeline {
         stage('Security Scan - npm audit') {
             agent {
                 docker {
-                    image 'node:22.15.0-alpine'
+                    image 'node:22.23.2-alpine3.24'
                     reuseNode true
                 }
             }
@@ -374,7 +374,7 @@ pipeline {
         stage('Build') {
             agent {
                 docker {
-                    image 'node:22.15.0-alpine'
+                    image 'node:22.23.2-alpine3.24'
                     reuseNode true
                 }
             }
