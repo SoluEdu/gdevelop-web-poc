@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import type { StoredFile } from '../lib/db/indexeddb';
 import ContentInfoModal from './ContentInfoModal.vue';
 import QaTodoDrawer from './QaTodoDrawer.vue';
+import ScreenRecorder from './ScreenRecorder.vue';
 import { getGameInfo } from '../lib/gameInfo/parse';
 import type { GameInfo } from '../lib/gameInfo/parse';
 import { loadQa, saveQa, progress as qaProgress } from '../lib/qa/todoStore';
@@ -16,9 +17,10 @@ const swStatus = ref<'waiting'|'ready'|'error'>('waiting');
 const swError = ref('');
 const gameUrl = `/games/${props.game.id}/index.html`;
 
-// ── info / qa state ───────────────────────────────────────────────────────
+// ── info / qa / rec state ───────────────────────────────────────────────
 const showInfo = ref(false);
 const showQa = ref(false);
+const showRec = ref(false);
 const showFloating = ref(true); // hide/unhide floating when fullscreen
 const gameInfo = ref<GameInfo | null>(null);
 const infoLoading = ref(false);
@@ -143,6 +145,7 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
             <span>◧</span>
             <span v-if="errorCount" class="err-dot">{{ errorCount }}</span>
           </button>
+          <button class="btn-icon" :class="{ active: showRec }" title="Screen record + draw/type" @click="showRec=!showRec; if(showRec) showFloating=true">●</button>
           <button class="btn-icon" title="Open in new tab" @click="openInNewTab">⧉</button>
           <button class="btn-icon" title="Toggle fullscreen" @click="toggleFullscreen">{{ isFullscreen?'⊠':'⛶' }}</button>
           <button class="btn-icon btn-close" title="Close (Esc)" @click="close">✕</button>
@@ -155,6 +158,9 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
           <div v-else-if="swStatus==='error'" class="sw-overlay error"><p>⚠ {{ swError }}</p><p class="hint">Make sure app is served over HTTPS and SW is registered.</p></div>
           <iframe v-else ref="iframe" :src="iframeSrc" :title="game.name" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups" @load="handleIframeLoad" />
 
+          <!-- Screen recorder overlay — full size, hide/unhide with floating -->
+          <ScreenRecorder v-if="showRec" :game-name="game.name" :class="{ 'hidden-floating': isFullscreen && !showFloating }" />
+
           <!-- floating QA drawer — overlay, hide/unhide in fullscreen -->
           <QaTodoDrawer
             v-if="showQa && showFloating"
@@ -166,7 +172,7 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
             @openInfo="handleOpenInfoFromQa"
           />
           <!-- fullscreen toggle for floating panels -->
-          <button v-if="isFullscreen && (showQa || showConsole)" class="fs-toggle" @click="showFloating=!showFloating" :title="showFloating ? 'Hide panels' : 'Show panels'">
+          <button v-if="isFullscreen && (showQa || showConsole || showRec)" class="fs-toggle" @click="showFloating=!showFloating" :title="showFloating ? 'Hide panels' : 'Show panels'">
             {{ showFloating ? '⟡ Hide' : '⟡ Show' }}
           </button>
           <!-- overlay console — absolute, tidak merubah ukuran game -->
@@ -292,6 +298,7 @@ iframe{width:100%;height:100%;border:none;display:block}
 .err-dot{ position: absolute; top: -6px; right: -6px; background: #dc2626; color: #fff; font-size: 0.6rem; font-weight: 700; min-width: 16px; height: 16px; border-radius: 999px; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
 .fs-toggle{ position:absolute; bottom:0.5rem; left:0.5rem; z-index:13; background:#0f1117; border:1px solid var(--border); color:var(--text); border-radius:999px; padding:0.25rem 0.6rem; font-size:0.7rem; font-weight:700; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5); }
 .fs-toggle:hover{ background:var(--border); }
+.hidden-floating{ display:none !important; }
 /* accordion — overlay vs docked */
 .console{ display: flex; flex-direction: column; border-top: 1px solid var(--border); background: #0a0c12; }
 /* overlay — absolute, tidak merubah ukuran game (default) */
