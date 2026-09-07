@@ -19,8 +19,7 @@ async function testOPFS(){
   if (!isOPFSAvailable()){ push('Availability','fail','navigator.storage.getDirectory not found'); return; }
   push('Availability','pass','navigator.storage.getDirectory exists');
   try { await navigator.storage.getDirectory(); push('Get Root','pass','Root FileSystemDirectoryHandle obtained'); } catch(e){ push('Get Root','fail',String(e)); return; }
-  let dir: FileSystemDirectoryHandle;
-  try { dir = await createUploadDirectory(); push('Create uploads/ dir','pass','uploads/ handle obtained'); } catch(e){ push('Create uploads/ dir','fail',String(e)); return; }
+  try { await createUploadDirectory(); push('Create uploads/ dir','pass','uploads/ handle obtained'); } catch(e){ push('Create uploads/ dir','fail',String(e)); return; }
   const testId='__opfs_test__';
   const testData=new Uint8Array([0x50,0x4b,0x05,0x06,...new Array(18).fill(0)]);
   const testFile=new File([testData],'test.zip',{type:'application/zip'});
@@ -41,7 +40,7 @@ async function handleClearAll(){
   if(!confirm('Clear ALL stored files?\n\nThis will delete every OPFS file and all IndexedDB records.')) return;
   clearing.value=true; clearMsg.value=''; clearError.value='';
   try {
-    if(isOPFSAvailable()){ const root= await navigator.storage.getDirectory(); try{ await root.removeEntry('uploads',{recursive:true} as any);}catch{} }
+    if(isOPFSAvailable()){ const root= await navigator.storage.getDirectory(); try{ await root.removeEntry('uploads',{recursive:true} as unknown as { recursive: boolean });}catch{} }
     await clearFiles();
     clearMsg.value='All files cleared.'; emit('refreshAll');
   } catch(e){ clearError.value=`Clear failed: ${(e as Error).message}`; }

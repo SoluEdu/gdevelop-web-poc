@@ -124,7 +124,7 @@ async function handleGithubImport(req, res) {
         if (value) res.write(Buffer.from(value));
       }
       res.end();
-    } catch (e) {
+    } catch {
       // client aborted
       try { res.end(); } catch {}
     }

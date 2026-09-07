@@ -20,8 +20,8 @@ export interface GameInfo {
   projectFile: string | null;
   layoutsCount: number;
   resourcesCount: number;
-  extensionProperties: any[];
-  raw: any;
+  extensionProperties: unknown[];
+  raw: unknown;
 }
 
 const cache = new Map<string, GameInfo | null>();
@@ -130,6 +130,8 @@ async function readFromOPFS(gameId: string): Promise<GameInfo | null> {
   return null;
 }
 
+// GDevelop project JSON is dynamic — `any` is intentional here
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractProjectData(text: string): any | null {
   // data.js: gdjs.projectData = {...};\ngdjs.runtimeGameOptions = {...};
   // Use delimiter split — avoids lazy regex that truncates nested JSON
@@ -165,6 +167,7 @@ function extractProjectData(text: string): any | null {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalize(data: any): GameInfo {
   const p = data.properties || {};
   return {

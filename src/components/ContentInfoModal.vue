@@ -4,7 +4,7 @@ import { isValidPackageName } from '../lib/gameInfo/parse';
 import type { StoredFile } from '../lib/db/indexeddb';
 import { formatBytes } from '../lib/zip/zip';
 
-const props = defineProps<{
+defineProps<{
   game: StoredFile;
   info: GameInfo | null;
   loading: boolean;

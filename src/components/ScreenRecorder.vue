@@ -170,14 +170,15 @@ async function startRecording(){
 
     let captureStream: MediaStream;
     try {
-      captureStream = await (navigator.mediaDevices as any).getDisplayMedia({
-        video: { displaySurface: 'browser' } as any,
+      captureStream = await (navigator.mediaDevices as unknown as { getDisplayMedia: (c: unknown) => Promise<MediaStream> }).getDisplayMedia({
+        video: { displaySurface: 'browser' } as unknown as MediaTrackConstraints,
         audio: true,
         preferCurrentTab: true,
-      }) as MediaStream;
-    } catch (e:any) {
-      if (e?.name === 'NotAllowedError') throw new Error('Izin screen capture ditolak');
-      throw new Error(e?.message || 'Gagal memulai screen capture — butuh HTTPS & izin browser');
+      } as unknown as DisplayMediaStreamOptions) as MediaStream;
+    } catch (e: unknown) {
+      const err = e as { name?: string; message?: string };
+      if (err?.name === 'NotAllowedError') throw new Error('Izin screen capture ditolak');
+      throw new Error(err?.message || 'Gagal memulai screen capture — butuh HTTPS & izin browser');
     }
 
     stream = captureStream;
@@ -187,7 +188,7 @@ async function startRecording(){
     const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9'
                : MediaRecorder.isTypeSupported('video/webm') ? 'video/webm'
                : 'video/mp4';
-    mediaRecorder = new MediaRecorder(stream, { mimeType: mime as any, videoBitsPerSecond: 2500000 });
+    mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2500000 });
     mediaRecorder.ondataavailable = e=> { if (e.data && e.data.size>0) chunks.push(e.data); };
     mediaRecorder.onstop = ()=> {
       try {
@@ -203,7 +204,7 @@ async function startRecording(){
       }
       mediaRecorder = null;
     };
-    mediaRecorder.onerror = (e:any)=> { recError.value = e?.error?.message || 'MediaRecorder error'; };
+    mediaRecorder.onerror = (e: unknown)=> { const ev = e as { error?: { message?: string } }; recError.value = ev?.error?.message || 'MediaRecorder error'; };
     mediaRecorder.start(100);
     isRecording.value = true;
     recTime.value = 0;
@@ -212,8 +213,8 @@ async function startRecording(){
 
     if (!showOverlay.value) enableOverlay();
 
-  } catch(e:any){
-    recError.value = e?.message || String(e);
+  } catch(e: unknown){
+    recError.value = (e as Error)?.message || String(e);
     cleanupRecorder(true);
   }
 }
@@ -230,7 +231,7 @@ function stopRecording(){
     isRecording.value = false;
     return;
   }
-  try { mediaRecorder.stop(); } catch(e:any){ recError.value = e?.message || String(e); }
+  try { mediaRecorder.stop(); } catch(e: unknown){ recError.value = (e as Error)?.message || String(e); }
   isRecording.value = false;
   if (timer) { clearInterval(timer); timer=null; }
   // tracks will be stopped in onstop handler after blob created

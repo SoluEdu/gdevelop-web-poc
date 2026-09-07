@@ -68,7 +68,7 @@ function handleMessage(e:MessageEvent){
 }
 function handleIframeLoad(){
   try {
-    const w = iframe.value?.contentWindow as any;
+    const w = iframe.value?.contentWindow as unknown as Window & { eval: (s: string) => unknown };
     if (!w) return;
     const script = `
       (function(){
@@ -121,8 +121,8 @@ function close(){ if(iframe.value) iframe.value.src='about:blank'; emit('close')
 async function toggleFullscreen(){
   // fullscreen the runner container so floating panels stay visible & toggleable
   const runnerEl = document.querySelector('.runner') as HTMLElement | null;
-  const target: any = runnerEl || iframe.value;
-  if (!document.fullscreenElement){ await target?.requestFullscreen?.(); isFullscreen.value=true; }
+  const target = (runnerEl || iframe.value) as unknown as HTMLElement | null;
+  if (!document.fullscreenElement){ await (target as unknown as { requestFullscreen?: () => Promise<void> })?.requestFullscreen?.(); isFullscreen.value=true; }
   else { await document.exitFullscreen?.(); isFullscreen.value=false; }
 }
 function onFsChange(){ isFullscreen.value = !!document.fullscreenElement; }
@@ -190,8 +190,8 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
                   <button class="seg-btn" :class="{on: consolePos==='right'}" @click="consolePos='right'" title="Pindah ke samping">▯ Side</button>
                 </div>
                 <div class="seg">
-                  <button class="seg-btn" :class="{on: consoleMode==='overlay'}" @click="consoleMode='overlay'" title="Overlay — tidak merubah ukuran game">Overlay</button>
-                  <button class="seg-btn" :class="{on: consoleMode==='docked'}" @click="consoleMode='docked'" title="Docked — merubah ukuran game (fixed)">Docked</button>
+                  <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='overlay'}" @click="consoleMode='overlay'" title="Overlay — tidak merubah ukuran game">Overlay</button>
+                  <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='docked'}" @click="consoleMode='docked'" title="Docked — merubah ukuran game (fixed)">Docked</button>
                 </div>
                 <select v-model="filter" class="console-filter">
                   <option value="all">All</option>
@@ -231,8 +231,8 @@ function openInNewTab(){ window.open(gameUrl,'_blank'); }
                 <button class="seg-btn" :class="{on: consolePos==='right'}" @click="consolePos='right'">▯ Side</button>
               </div>
               <div class="seg">
-                <button class="seg-btn" :class="{on: consoleMode==='overlay'}" @click="consoleMode='overlay'">Overlay</button>
-                <button class="seg-btn" :class="{on: consoleMode==='docked'}" @click="consoleMode='docked'">Docked</button>
+                <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='overlay'}" @click="consoleMode='overlay'">Overlay</button>
+                <button class="seg-btn" :class="{on: (consoleMode as unknown as string)==='docked'}" @click="consoleMode='docked'">Docked</button>
               </div>
               <select v-model="filter" class="console-filter">
                 <option value="all">All</option>
