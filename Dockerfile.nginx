@@ -5,6 +5,9 @@
 # ==============================================
 FROM nginx:1.27-alpine
 
+# Patch base alpine 3.21.3 — upgrade fixed CVEs (c-ares, libcrypto3, openssl, libexpat, libpng, libxml2, musl, nghttp2, zlib) untuk lolos trivy HIGH,CRITICAL
+RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
+
 # Buang default bawaan image, ganti dengan config repo
 RUN rm -f /etc/nginx/conf.d/default.conf
 
