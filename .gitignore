@@ -14,6 +14,11 @@ dist-ssr
 coverage
 *.local
 
+# SSL certificates & Private Keys
+*.pem
+*.key
+*.crt
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
