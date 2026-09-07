@@ -65,6 +65,8 @@ pipeline {
                     def prefix = isProd ? 'prod' : 'staging'
                     env.IMAGE_TAG = "${prefix}-${version}-${env.BUILD_NUMBER}"
                     env.FULL_IMAGE = "${env.HARBOR_HOST}/${env.HARBOR_PROJECT}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    env.NGINX_TAG = "${env.IMAGE_TAG}-nginx"
+                    env.NGINX_IMAGE = "${env.HARBOR_HOST}/${env.HARBOR_PROJECT}/${env.IMAGE_NAME}:${env.NGINX_TAG}"
 
                     // fallback GIT_COMMIT jika checkout shallow
                     if (!env.GIT_COMMIT) {
@@ -74,6 +76,7 @@ pipeline {
                     echo "Branch     : ${env.BRANCH_NAME}"
                     echo "Version    : ${version} | Tag: ${env.IMAGE_TAG}"
                     echo "Full image : ${env.FULL_IMAGE}"
+                    echo "Nginx image: ${env.NGINX_IMAGE}"
                     echo "Git commit : ${env.GIT_COMMIT}"
                 }
             }
@@ -452,6 +455,13 @@ pipeline {
                     grep -q "server.mjs" Dockerfile || { echo "Dockerfile missing server.mjs" >&2; exit 1; }
                     grep -q "server.mjs" Dockerfile.deploy || { echo "Dockerfile.deploy missing server.mjs" >&2; exit 1; }
                     echo "sync server.mjs"
+                    # Nginx image guard: baked conf, base pin
+                    [ -f Dockerfile.nginx ] || { echo "missing Dockerfile.nginx" >&2; exit 1; }
+                    grep -q "FROM nginx:1.27-alpine" Dockerfile.nginx || { echo "Dockerfile.nginx base must stay nginx:1.27-alpine" >&2; exit 1; }
+                    grep -q "nginx/nginx.conf" Dockerfile.nginx || { echo "Dockerfile.nginx must COPY nginx/nginx.conf" >&2; exit 1; }
+                    grep -q "NGINX_IMAGE" docker-compose.yml || { echo "docker-compose.yml must reference NGINX_IMAGE" >&2; exit 1; }
+                    if grep -q "volumes:" docker-compose.yml; then echo "docker-compose.yml must not contain volumes (nginx baked)" >&2; exit 1; fi
+                    echo "sync nginx image guard ok"
                 ''')
             }
             post {
@@ -501,6 +511,10 @@ set -euo pipefail
                             -f Dockerfile.deploy \
                             -t ${env.FULL_IMAGE} \
                             .
+                        docker build \
+                            -f Dockerfile.nginx \
+                            -t ${env.NGINX_IMAGE} \
+                            .
 
                         echo "=== trivy image scan (HIGH,CRITICAL block) via docker ==="
                         {
@@ -518,7 +532,16 @@ set -euo pipefail
                         }
                         echo "✅ trivy image passed" | tee -a trivy-image-report.md
 
+                        echo "=== trivy nginx image scan (HIGH,CRITICAL block) ==="
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:$TRIVY_VERSION image --severity HIGH,CRITICAL --exit-code 1 --no-progress ${env.NGINX_IMAGE} || {
+                            echo "❌ trivy nginx image found HIGH/CRITICAL — blocking push" | tee -a trivy-image-report.md
+                            docker image rm ${env.FULL_IMAGE} ${env.NGINX_IMAGE} || true
+                            docker logout ${HARBOR_HOST} || true
+                            exit 1
+                        }
+
                         docker push ${env.FULL_IMAGE}
+                        docker push ${env.NGINX_IMAGE}
                         docker logout ${HARBOR_HOST}
                     """
                 }
@@ -531,7 +554,7 @@ set -euo pipefail
                         rm -rf dist || true
                     '''
                     // hapus image terbuild saja di agent (scoped, bukan prune -a)
-                    sh "docker image rm ${env.FULL_IMAGE} || true"
+                    sh "docker image rm ${env.FULL_IMAGE} ${env.NGINX_IMAGE} || true"
                 }
             }
         }
@@ -587,6 +610,7 @@ set -euo pipefail
                             umask 077
                             cat \$ENV_FILE > .env.tmp
                             echo "FULL_IMAGE=${env.FULL_IMAGE}" >> .env.tmp
+                            echo "NGINX_IMAGE=${env.NGINX_IMAGE}" >> .env.tmp
                             echo "CONTAINER_NAME=${env.CONTAINER_NAME}" >> .env.tmp
                             echo "HOST_BIND=${env.HOST_BIND}" >> .env.tmp
                             echo "HOST_PORT=${env.HOST_PORT}" >> .env.tmp
@@ -617,7 +641,7 @@ set -euo pipefail
 
                         sh """#!/bin/bash
 set -euo pipefail
-                            ssh -o StrictHostKeyChecking=accept-new ${REMOTE_USER}@${REMOTE_HOST} "HARBOR_HOST='${HARBOR_HOST}' FULL_IMAGE='${env.FULL_IMAGE}' REMOTE_DIR='${env.REMOTE_DIR}' CONTAINER_NAME='${env.CONTAINER_NAME}' HOST_BIND='${env.HOST_BIND}' HOST_PORT='${env.HOST_PORT}' CONTAINER_PORT='${env.CONTAINER_PORT}' HEALTH_CHECK_PORT='${env.HEALTH_CHECK_PORT}' HARBOR_PROJECT='${env.HARBOR_PROJECT}' IMAGE_NAME='${env.IMAGE_NAME}' bash -s" << 'EOF'
+                            ssh -o StrictHostKeyChecking=accept-new ${REMOTE_USER}@${REMOTE_HOST} "HARBOR_HOST='${HARBOR_HOST}' FULL_IMAGE='${env.FULL_IMAGE}' NGINX_IMAGE='${env.NGINX_IMAGE}' REMOTE_DIR='${env.REMOTE_DIR}' CONTAINER_NAME='${env.CONTAINER_NAME}' HOST_BIND='${env.HOST_BIND}' HOST_PORT='${env.HOST_PORT}' CONTAINER_PORT='${env.CONTAINER_PORT}' HEALTH_CHECK_PORT='${env.HEALTH_CHECK_PORT}' HARBOR_PROJECT='${env.HARBOR_PROJECT}' IMAGE_NAME='${env.IMAGE_NAME}' bash -s" << 'EOF'
                                 set -euo pipefail
                                 trap 'rm -f "\$REMOTE_DIR/.harbor_cred"' EXIT
 
@@ -640,9 +664,14 @@ set -euo pipefail
                                     [ -n "\$PREV_ID" ] && echo "\$PREV_ID" > .prev_image || true
                                 fi
 
+                                # Hapus sisa bind-mount lama (penyebab error mount directory onto file)
+                                rm -rf "\$REMOTE_DIR/nginx" || true
+
                                 docker pull "\$FULL_IMAGE"
+                                docker pull "\$NGINX_IMAGE"
 
                                 export FULL_IMAGE="\$FULL_IMAGE"
+                                export NGINX_IMAGE="\$NGINX_IMAGE"
                                 export CONTAINER_NAME="\$CONTAINER_NAME"
                                 export HOST_BIND="\${HOST_BIND:-127.0.0.1}"
                                 export HOST_PORT="\${HOST_PORT:-13015}"
