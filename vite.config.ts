@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 
@@ -71,4 +72,9 @@ function devGithubHandler() {
 
 export default defineConfig({
   plugins: [vue(), devGithubHandler()],
+  test: {
+    include: ['src/**/*.{test,spec}.{ts,js}'],
+    environment: 'node',
+    globals: false,
+  },
 });
