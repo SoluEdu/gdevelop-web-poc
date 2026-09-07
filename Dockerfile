@@ -1,7 +1,7 @@
 # ==============================================
 # Stage 1: Build (Vue + Vite)
 # ==============================================
-FROM node:22-alpine AS build
+FROM node:22.15.0-alpine AS build
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ RUN npm run build
 # Node sebagai handler untuk mendownload import dari GitHub,
 # lalu tetap simpan di OPFS (OPFS tetap di browser).
 # ==============================================
-FROM node:22-alpine
+FROM node:22.15.0-alpine
 
 WORKDIR /app
 

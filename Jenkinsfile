@@ -412,20 +412,25 @@ pipeline {
                 echo 'Checking Dockerfile vs Dockerfile.deploy runtime sync...'
                 // single-quoted: tidak perlu escape ${} $var — apa ada di file, apa ke bash
                 sh('''
-                    set -euo pipefail
+                    set -eu
                     for f in Dockerfile Dockerfile.deploy; do
                         [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
                     done
-                    # join backslash continuations, then pick directives
-                    norm() { awk '{ if (/\\$/) { sub(/\\$/," ",$0); printf "%s",$0; next } print }' "$1" | grep -E "^(FROM|EXPOSE|HEALTHCHECK|CMD|WORKDIR)" || true; }
-                    norm Dockerfile > .docker-base.txt
-                    norm Dockerfile.deploy > .docker-deploy.txt
-                    check() { # $1=label $2=pattern
-                        a=$(grep -E "^$2" .docker-base.txt | tail -n 1 || true)
-                        b=$(grep -E "^$2" .docker-deploy.txt | tail -n 1 || true)
+                    # pick directive lines without awk (coreutils only, CRLF-safe).
+                    # HEALTHCHECK spans 2 lines -> take -A1 instead of joining continuations.
+                    pick() { # $1=file $2=pattern [$3=A1]
+                        if [ "${3:-}" = "A1" ]; then
+                            grep -E "^$2" "$1" -A1 | tr -d '\r' || true
+                        else
+                            grep -E "^$2" "$1" | tail -n 1 | tr -d '\r' || true
+                        fi
+                    }
+                    check() { # $1=label $2=pattern [$3=A1]
+                        a=$(pick Dockerfile "$2" "${3:-}")
+                        b=$(pick Dockerfile.deploy "$2" "${3:-}")
                         if [ "$2" = "FROM" ]; then
-                            a=$(echo "$a" | awk "{print \$2}")
-                            b=$(echo "$b" | awk "{print \$2}")
+                            a=$(echo "$a" | cut -d' ' -f2)
+                            b=$(echo "$b" | cut -d' ' -f2)
                         fi
                         if [ -z "$a" ] || [ -z "$b" ]; then
                             echo "missing $1 (base='${a:-none}' deploy='${b:-none}')" >&2
@@ -442,7 +447,7 @@ pipeline {
                     check "FROM base image" "FROM"
                     check "WORKDIR" "WORKDIR"
                     check "EXPOSE" "EXPOSE"
-                    check "HEALTHCHECK" "HEALTHCHECK"
+                    check "HEALTHCHECK" "HEALTHCHECK" "A1"
                     check "CMD" "CMD"
                     grep -q "server.mjs" Dockerfile || { echo "Dockerfile missing server.mjs" >&2; exit 1; }
                     grep -q "server.mjs" Dockerfile.deploy || { echo "Dockerfile.deploy missing server.mjs" >&2; exit 1; }
@@ -451,7 +456,7 @@ pipeline {
             }
             post {
                 always {
-                    sh "rm -f .docker-base.txt .docker-deploy.txt || true"
+                    echo 'Dockerfile sync check done'
                 }
             }
         }
