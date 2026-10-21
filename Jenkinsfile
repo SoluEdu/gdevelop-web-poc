@@ -22,7 +22,7 @@ pipeline {
         HARBOR_HOST          = 'registry.solu.co.id'
         HARBOR_PROJECT       = 'gdevelop'
         IMAGE_NAME           = 'gdevelop-web-poc'
-        TRIVY_VERSION        = '0.74.0'
+        TRIVY_VERSION        = '0.76.0'
 
         // ==========================================
         // Staging Credentials
@@ -457,7 +457,7 @@ pipeline {
                     echo "sync server.mjs"
                     # Nginx image guard: baked conf, base pin
                     [ -f Dockerfile.nginx ] || { echo "missing Dockerfile.nginx" >&2; exit 1; }
-                    grep -q "FROM nginx:1.27-alpine" Dockerfile.nginx || { echo "Dockerfile.nginx base must stay nginx:1.27-alpine" >&2; exit 1; }
+                    grep -q "FROM nginx:1.31.7-alpine3.24" Dockerfile.nginx || { echo "Dockerfile.nginx base must stay nginx:1.31.7-alpine3.24" >&2; exit 1; }
                     grep -q "nginx/nginx.conf" Dockerfile.nginx || { echo "Dockerfile.nginx must COPY nginx/nginx.conf" >&2; exit 1; }
                     grep -q "NGINX_IMAGE" docker-compose.yml || { echo "docker-compose.yml must reference NGINX_IMAGE" >&2; exit 1; }
                     if grep -q "volumes:" docker-compose.yml; then echo "docker-compose.yml must not contain volumes (nginx baked)" >&2; exit 1; fi

@@ -1,9 +1,9 @@
 # ==============================================
 # Dockerfile.nginx — reverse proxy baked, tanpa bind-mount
 # nginx.conf di-COPY ke image, compose hanya pull (no build, no volumes).
-# Base dipin sama seperti compose lama: nginx:1.27-alpine
+# Base dipin sama seperti compose lama: nginx:1.31.7-alpine3.24
 # ==============================================
-FROM nginx:1.27-alpine
+FROM nginx:1.31.7-alpine3.24
 
 # Patch base alpine 3.21.3 — upgrade fixed CVEs (c-ares, libcrypto3, openssl, libexpat, libpng, libxml2, musl, nghttp2, zlib) untuk lolos trivy HIGH,CRITICAL
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
