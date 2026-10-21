@@ -41,6 +41,16 @@ const readEntries = ref<{ name:string; size:number; isDir:boolean }[]>([]);
 const readLoading = ref(false);
 const readError = ref('');
 const downloadUrl = ref('');
+const entryQuery = ref('');
+const entrySort = ref<'default'|'size-asc'|'size-desc'>('default');
+
+const visibleEntries = computed(() => {
+  const q = entryQuery.value.trim().toLowerCase();
+  const list = q ? readEntries.value.filter(e => e.name.toLowerCase().includes(q)) : readEntries.value.slice();
+  if (entrySort.value === 'size-asc') list.sort((a, b) => a.size - b.size || a.name.localeCompare(b.name));
+  else if (entrySort.value === 'size-desc') list.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
+  return list;
+});
 
 const extractingId = ref('');
 const extractProgress = ref(0);
@@ -61,7 +71,7 @@ async function reload(){
 onMounted(reload);
 
 async function handleRead(meta: StoredFile){
-  readTarget.value=meta; readFile.value=null; readInOPFS.value=false; readReadable.value=false; readEntries.value=[]; readError.value=''; readLoading.value=true;
+  readTarget.value=meta; readFile.value=null; readInOPFS.value=false; readReadable.value=false; readEntries.value=[]; readError.value=''; readLoading.value=true; entryQuery.value=''; entrySort.value='default';
   if (downloadUrl.value){ URL.revokeObjectURL(downloadUrl.value); downloadUrl.value=''; }
   try {
     readInOPFS.value = await fileExists(meta.id);
@@ -225,9 +235,20 @@ defineExpose({ reload });
         </div>
         <a v-if="downloadUrl" class="btn-download" :href="downloadUrl" :download="downloadName(readTarget)">⬇ Download ZIP</a>
         <div v-if="readEntries.length>0" class="entries">
-          <p class="entries-title">ZIP Contents ({{ readEntries.length }} entries)</p>
-          <div class="entries-list">
-            <div v-for="entry in readEntries" :key="entry.name" class="entry" :class="{ dir: entry.isDir }">
+          <div class="entries-head">
+            <p class="entries-title">ZIP Contents ({{ visibleEntries.length }} / {{ readEntries.length }})</p>
+            <div class="entries-tools">
+              <input class="search entry-search" type="search" placeholder="Filter nama…" v-model="entryQuery" />
+              <select class="select" v-model="entrySort">
+                <option value="default">Default</option>
+                <option value="size-desc">Size ↓</option>
+                <option value="size-asc">Size ↑</option>
+              </select>
+            </div>
+          </div>
+          <p v-if="visibleEntries.length===0" class="muted">Tidak ada entry yang cocok.</p>
+          <div v-else class="entries-list">
+            <div v-for="entry in visibleEntries" :key="entry.name" class="entry" :class="{ dir: entry.isDir }">
               <span class="entry-icon">{{ entry.isDir ? '📂' : '📄' }}</span>
               <span class="entry-name">{{ entry.name }}</span>
               <span v-if="!entry.isDir" class="entry-size mono">{{ formatBytes(entry.size) }}</span>
@@ -295,6 +316,11 @@ tr:last-child td { border-bottom: none; }
 .btn-download { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.6rem 1.25rem; background: #16a34a; color: #fff; text-decoration: none; border-radius: 6px; font-size: 0.875rem; font-weight: 600; transition: background 0.15s; align-self: flex-start; }
 .btn-download:hover { background: #15803d; }
 .entries-title { margin: 0 0 0.5rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.entries-head { display: flex; flex-direction: column; gap: 0.5rem; }
+.entries-tools { display: flex; gap: 0.5rem; }
+.entry-search { flex: 1; padding: 0.35rem 0.6rem; font-size: 0.78rem; }
+.select { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.78rem; outline: none; }
+.select:focus { border-color: #3b82f6; }
 .entries-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; background: var(--bg); border-radius: 6px; padding: 0.5rem; }
 .entry { display: flex; align-items: center; gap: 0.5rem; padding: 2px 0.25rem; font-size: 0.8rem; border-radius: 4px; }
 .entry:hover { background: var(--border); }
