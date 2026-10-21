@@ -11,6 +11,28 @@ const emit = defineEmits<{ (e:'deleted', id:string):void; (e:'refreshStorage'):v
 const files = ref<StoredFile[]>([]);
 const loading = ref(true);
 
+const query = ref('');
+const page = ref(1);
+const PAGE_SIZE = 20;
+
+const filteredFiles = computed(() => {
+  const q = query.value.trim().toLowerCase();
+  if (!q) return files.value;
+  return files.value.filter(f =>
+    (f.label ?? '').toLowerCase().includes(q) || f.name.toLowerCase().includes(q));
+});
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredFiles.value.length / PAGE_SIZE)));
+const currentPage = computed(() => Math.min(page.value, pageCount.value));
+const pagedFiles = computed(() => filteredFiles.value.slice(
+  (currentPage.value - 1) * PAGE_SIZE, currentPage.value * PAGE_SIZE));
+
+const displayName = (f: StoredFile) => f.label || f.name;
+const downloadName = (f: StoredFile) => f.label
+  ? (f.label.toLowerCase().endsWith('.zip') ? f.label : `${f.label}.zip`)
+  : f.name;
+
+function onSearch(){ page.value = 1; }
+
 const readTarget = ref<StoredFile | null>(null);
 const readFile = ref<File | null>(null);
 const readInOPFS = ref(false);
@@ -75,6 +97,17 @@ async function handleExtract(meta: StoredFile){
   finally { extractingId.value=''; }
 }
 function handlePlay(meta: StoredFile){ runningGame.value = meta; }
+async function handleRename(meta: StoredFile){
+  const input = prompt('Custom name (kosongkan untuk pakai nama asli):', meta.label ?? '');
+  if (input === null) return;
+  const label = input.trim();
+  const updated: StoredFile = { ...meta, label: label || undefined };
+  try {
+    await addFile(updated);
+    files.value = files.value.map(f => f.id === meta.id ? updated : f);
+    showToast(label ? `Renamed to "${label}"` : `Name reset to "${meta.name}"`);
+  } catch(err){ showToast(`Rename failed: ${(err as Error).message}`, 'err'); }
+}
 async function handleDelete(meta: StoredFile){
   if (extractingId.value) return;
   const hasGame = meta.extracted;
@@ -116,13 +149,22 @@ defineExpose({ reload });
     <h2>Stored Files</h2>
     <p v-if="loading" class="muted">Loading…</p>
     <p v-else-if="files.length===0" class="muted">No files stored yet. Upload a ZIP above.</p>
+    <template v-else>
+    <div class="toolbar">
+      <input class="search" type="search" placeholder="Cari nama…" v-model="query" @input="onSearch" />
+      <span class="count mono">{{ filteredFiles.length }} / {{ files.length }} file</span>
+    </div>
+    <p v-if="filteredFiles.length===0" class="muted">Tidak ada file yang cocok dengan "{{ query }}".</p>
     <div v-else class="table-wrap">
       <table>
         <thead><tr><th>Name</th><th>Size</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
-          <template v-for="file in files" :key="file.id">
+          <template v-for="file in pagedFiles" :key="file.id">
             <tr>
-              <td class="name" :title="file.name">{{ file.name }}</td>
+              <td class="name" :title="file.label ? `${file.label} — ${file.name}` : file.name">
+                <span class="display-name">{{ displayName(file) }}</span>
+                <span v-if="file.label" class="orig-name mono">{{ file.name }}</span>
+              </td>
               <td class="mono">{{ formatBytes(file.size) }}</td>
               <td class="mono">{{ formatDate(file.createdAt) }}</td>
               <td>
@@ -136,6 +178,7 @@ defineExpose({ reload });
                   <button class="btn-sm reextract" @click="handleExtract(file)" :disabled="isExtractDisabled(file.id)" :title="getExtractTitle(file.id, true)">{{ extractingId===file.id ? `${extractPercent}%` : '🔄 Re-Extract' }}</button>
                 </template>
                 <button v-else class="btn-sm extract" @click="handleExtract(file)" :disabled="isExtractDisabled(file.id)" :title="getExtractTitle(file.id, false)">{{ extractingId===file.id ? `${extractPercent}%` : 'Extract' }}</button>
+                <button class="btn-sm rename" @click="handleRename(file)" :disabled="deletingId===file.id">Rename</button>
                 <button class="btn-sm del" @click="handleDelete(file)" :disabled="deletingId===file.id || isExtractDisabled(file.id)">{{ deletingId===file.id ? '…' : 'Delete' }}</button>
               </td>
             </tr>
@@ -151,6 +194,12 @@ defineExpose({ reload });
         </tbody>
       </table>
     </div>
+    <div v-if="pageCount > 1" class="pager">
+      <button class="btn-sm page" :disabled="currentPage===1" @click="page=currentPage-1">← Prev</button>
+      <span class="mono">Halaman {{ currentPage }} / {{ pageCount }}</span>
+      <button class="btn-sm page" :disabled="currentPage===pageCount" @click="page=currentPage+1">Next →</button>
+    </div>
+    </template>
     <div v-if="toast" class="toast" :class="toastType==='ok' ? 'toast-ok' : 'toast-err'">{{ toast }}</div>
   </section>
 
@@ -174,7 +223,7 @@ defineExpose({ reload });
             <button class="btn-sm reextract" @click="handleExtract(readTarget)" :disabled="isExtractDisabled(readTarget.id)" :title="getExtractTitle(readTarget.id, true)">🔄 Re-Extract</button>
           </div>
         </div>
-        <a v-if="downloadUrl" class="btn-download" :href="downloadUrl" :download="readTarget.name">⬇ Download ZIP</a>
+        <a v-if="downloadUrl" class="btn-download" :href="downloadUrl" :download="downloadName(readTarget)">⬇ Download ZIP</a>
         <div v-if="readEntries.length>0" class="entries">
           <p class="entries-title">ZIP Contents ({{ readEntries.length }} entries)</p>
           <div class="entries-list">
@@ -200,6 +249,17 @@ th { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--b
 td { padding: 0.625rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 tr:last-child td { border-bottom: none; }
 .name { font-weight: 500; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.display-name { display: block; overflow: hidden; text-overflow: ellipsis; }
+.orig-name { display: block; color: var(--text-muted); font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; }
+.toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+.search { flex: 1; padding: 0.45rem 0.7rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.85rem; outline: none; }
+.search:focus { border-color: #3b82f6; }
+.count { color: var(--text-muted); white-space: nowrap; }
+.pager { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 0.75rem; color: var(--text-muted); }
+.btn-sm.page { background: #64748b22; color: var(--text-muted); border-color: #64748b44; }
+.btn-sm.page:hover:not(:disabled) { background: #64748b33; }
+.btn-sm.rename { background: #8b5cf622; color: #a78bfa; border-color: #8b5cf644; }
+.btn-sm.rename:hover:not(:disabled) { background: #8b5cf633; }
 .mono { font-family: monospace; font-size: 0.8rem; }
 .badge { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.03em; white-space: nowrap; }
 .badge.ok { background: #16a34a22; color: #16a34a; border: 1px solid #16a34a44; }

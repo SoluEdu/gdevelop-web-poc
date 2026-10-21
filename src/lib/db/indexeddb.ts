@@ -8,6 +8,7 @@ const STORE_NAME = 'files';
 export interface StoredFile {
   id: string;
   name: string;
+  label?: string;          // user-defined display name (falls back to name)
   size: number;
   type: string;
   createdAt: number;
