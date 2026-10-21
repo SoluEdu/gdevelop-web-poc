@@ -2,8 +2,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { getAllFiles, deleteFile as dbDelete, addFile } from '../lib/db/indexeddb';
 import { getFile as opfsGet, deleteFile as opfsDelete, fileExists, extractGameToOPFS, deleteGame } from '../lib/storage/opfs';
-import { extractZip, formatBytes } from '../lib/zip/zip';
+import { extractZip, formatBytes, tryReadAsText } from '../lib/zip/zip';
+import { imageMime, isImageName, readImageMeta } from '../lib/image/meta';
+import { auditAssets } from '../lib/gameInfo/audit';
+import { extractProjectData } from '../lib/gameInfo/parse';
 import GameRunner from './GameRunner.vue';
+import type { ZipEntry } from '../lib/zip/zip';
+import type { ImageMeta } from '../lib/image/meta';
 import type { StoredFile } from '../lib/db/indexeddb';
 
 const emit = defineEmits<{ (e:'deleted', id:string):void; (e:'refreshStorage'):void }>();
@@ -33,11 +38,27 @@ const downloadName = (f: StoredFile) => f.label
 
 function onSearch(){ page.value = 1; }
 
+const projectData = computed(() => {
+  const find = (n: string) => readEntries.value.find(e => e.name === n || e.name.endsWith('/' + n));
+  const json = find('game.json');
+  if (json) {
+    const text = tryReadAsText(json);
+    if (text) { try { return JSON.parse(text); } catch { /* fall back to data.js */ } }
+  }
+  const js = find('data.js') ?? find('code0.js');
+  if (js) {
+    const text = tryReadAsText(js);
+    if (text) return extractProjectData(text);
+  }
+  return null;
+});
+const assetAudit = computed(() => projectData.value ? auditAssets(projectData.value, readEntries.value) : null);
+
 const readTarget = ref<StoredFile | null>(null);
 const readFile = ref<File | null>(null);
 const readInOPFS = ref(false);
 const readReadable = ref(false);
-const readEntries = ref<{ name:string; size:number; isDir:boolean }[]>([]);
+const readEntries = ref<ZipEntry[]>([]);
 const readLoading = ref(false);
 const readError = ref('');
 const downloadUrl = ref('');
@@ -51,6 +72,36 @@ const visibleEntries = computed(() => {
   else if (entrySort.value === 'size-desc') list.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name));
   return list;
 });
+
+const previewEntry = ref<ZipEntry | null>(null);
+const previewUrl = ref('');
+const previewMeta = ref<(ImageMeta & { mime: string }) | null>(null);
+const previewError = ref('');
+
+function clearPreview(){
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
+  previewUrl.value = ''; previewEntry.value = null; previewMeta.value = null; previewError.value = '';
+}
+
+function selectEntry(entry: ZipEntry){
+  const mime = imageMime(entry.name);
+  if (!mime) { clearPreview(); return; }
+  clearPreview();
+  previewEntry.value = entry;
+  previewUrl.value = URL.createObjectURL(new Blob([new Uint8Array(entry.data)], { type: mime }));
+  const meta = readImageMeta(entry.data, mime);
+  previewMeta.value = { ...(meta ?? { width: 0, height: 0, bitDepth: null, channels: null, bitsPerPixel: null }), mime };
+  if (!meta || !meta.width) {
+    const img = new Image();
+    img.onload = () => {
+      if (!previewMeta.value) return;
+      previewMeta.value.width = img.naturalWidth;
+      previewMeta.value.height = img.naturalHeight;
+    };
+    img.onerror = () => { previewError.value = 'Preview gagal dimuat'; };
+    img.src = previewUrl.value;
+  }
+}
 
 const extractingId = ref('');
 const extractProgress = ref(0);
@@ -80,7 +131,7 @@ async function handleRead(meta: StoredFile){
     readReadable.value = true;
     const buffer = await readFile.value.arrayBuffer();
     const entries = extractZip(buffer);
-    readEntries.value = entries.map(e=> ({ name:e.name, size:e.size, isDir:e.isDirectory }));
+    readEntries.value = entries;
     const blob = new Blob([buffer], { type:'application/zip' });
     downloadUrl.value = URL.createObjectURL(blob);
   } catch(err){ readError.value=`Read failed: ${(err as Error).message}`; }
@@ -88,6 +139,7 @@ async function handleRead(meta: StoredFile){
 }
 function closeRead(){
   if (downloadUrl.value){ URL.revokeObjectURL(downloadUrl.value); downloadUrl.value=''; }
+  clearPreview();
   readTarget.value=null;
 }
 async function handleExtract(meta: StoredFile){
@@ -234,6 +286,45 @@ defineExpose({ reload });
           </div>
         </div>
         <a v-if="downloadUrl" class="btn-download" :href="downloadUrl" :download="downloadName(readTarget)">⬇ Download ZIP</a>
+        <div v-if="previewUrl" class="preview">
+          <img :src="previewUrl" :alt="previewEntry?.name" @error="previewError = 'Preview gagal dimuat'" />
+          <div class="preview-meta">
+            <div class="read-row"><span>Name</span><span class="mono entry-name">{{ previewEntry?.name }}</span></div>
+            <div class="read-row"><span>Type</span><span class="mono">{{ previewMeta?.mime }}</span></div>
+            <div class="read-row"><span>Resolution</span><span class="mono">{{ previewMeta?.width }} × {{ previewMeta?.height }} px</span></div>
+            <div class="read-row"><span>Bit depth</span><span class="mono">{{ previewMeta?.bitDepth ?? '—' }}<template v-if="previewMeta?.bitDepth">-bit</template></span></div>
+            <div class="read-row"><span>Bits / pixel</span><span class="mono">{{ previewMeta?.bitsPerPixel ?? '—' }}<template v-if="previewMeta?.channels"> ({{ previewMeta?.channels }} channel)</template></span></div>
+            <div class="read-row"><span>Size</span><span class="mono">{{ formatBytes(previewEntry?.size ?? 0) }}</span></div>
+          </div>
+        </div>
+        <p v-if="previewError" class="alert error">{{ previewError }}</p>
+        <details v-if="assetAudit" class="audit">
+          <summary>
+            🔍 Asset Audit — {{ assetAudit.used }}/{{ assetAudit.total }} dipakai
+            <span class="audit-badge" :class="{ warn: assetAudit.unused.length > 0 }">{{ assetAudit.unused.length }} unused</span>
+            <span v-if="assetAudit.missing.length" class="audit-badge err">{{ assetAudit.missing.length }} hilang</span>
+          </summary>
+          <p class="audit-sub">Referensi asset dicocokkan dari nama resource di seluruh isi project (game.json / data.js).</p>
+          <p v-if="assetAudit.unused.length===0" class="muted">Semua asset di game.json dipakai.</p>
+          <div v-else class="entries-list audit-list">
+            <div v-for="a in assetAudit.unused" :key="a.name" class="entry">
+              <span class="entry-icon">🗑</span>
+              <span class="entry-name">{{ a.name }}</span>
+              <span class="audit-kind">{{ a.kind }}</span>
+              <span class="entry-size mono">{{ a.zipSize !== null ? formatBytes(a.zipSize) : 'not in zip' }}</span>
+            </div>
+          </div>
+          <template v-if="assetAudit.missing.length">
+            <p class="audit-sub">Dipakai tapi file tidak ada di ZIP:</p>
+            <div class="entries-list audit-list">
+              <div v-for="a in assetAudit.missing" :key="a.name" class="entry">
+                <span class="entry-icon">⚠</span>
+                <span class="entry-name">{{ a.name }}</span>
+                <span class="audit-kind">{{ a.file }}</span>
+              </div>
+            </div>
+          </template>
+        </details>
         <div v-if="readEntries.length>0" class="entries">
           <div class="entries-head">
             <p class="entries-title">ZIP Contents ({{ visibleEntries.length }} / {{ readEntries.length }})</p>
@@ -248,10 +339,10 @@ defineExpose({ reload });
           </div>
           <p v-if="visibleEntries.length===0" class="muted">Tidak ada entry yang cocok.</p>
           <div v-else class="entries-list">
-            <div v-for="entry in visibleEntries" :key="entry.name" class="entry" :class="{ dir: entry.isDir }">
-              <span class="entry-icon">{{ entry.isDir ? '📂' : '📄' }}</span>
+            <div v-for="entry in visibleEntries" :key="entry.name" class="entry" :class="{ dir: entry.isDirectory, selectable: isImageName(entry.name), selected: previewEntry?.name === entry.name }" @click="selectEntry(entry)">
+              <span class="entry-icon">{{ entry.isDirectory ? '📂' : isImageName(entry.name) ? '🖼' : '📄' }}</span>
               <span class="entry-name">{{ entry.name }}</span>
-              <span v-if="!entry.isDir" class="entry-size mono">{{ formatBytes(entry.size) }}</span>
+              <span v-if="!entry.isDirectory" class="entry-size mono">{{ formatBytes(entry.size) }}</span>
             </div>
           </div>
         </div>
@@ -324,6 +415,19 @@ tr:last-child td { border-bottom: none; }
 .entries-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; background: var(--bg); border-radius: 6px; padding: 0.5rem; }
 .entry { display: flex; align-items: center; gap: 0.5rem; padding: 2px 0.25rem; font-size: 0.8rem; border-radius: 4px; }
 .entry:hover { background: var(--border); }
+.entry.selectable { cursor: pointer; }
+.entry.selected { background: #3b82f622; outline: 1px solid #3b82f644; }
+.preview { display: flex; gap: 0.75rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; }
+.preview img { max-width: 200px; max-height: 160px; object-fit: contain; border-radius: 4px; background: #000; flex-shrink: 0; }
+.preview-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.8rem; }
+.audit { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+.audit summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.audit-badge { font-size: 0.68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #16a34a22; color: #16a34a; border: 1px solid #16a34a44; }
+.audit-badge.warn { background: #d9770622; color: #f59e0b; border-color: #d9770644; }
+.audit-badge.err { background: #dc262622; color: #dc2626; border-color: #dc262644; }
+.audit-list { margin-top: 0.5rem; max-height: 180px; }
+.audit-kind { font-size: 0.68rem; color: var(--text-muted); flex-shrink: 0; }
+.audit-sub { margin-top: 0.5rem; font-size: 0.72rem; color: var(--text-muted); }
 .entry-icon { flex-shrink: 0; font-size: 0.9rem; }
 .entry-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
 .entry-size { color: var(--text-muted); flex-shrink: 0; }

@@ -132,7 +132,7 @@ async function readFromOPFS(gameId: string): Promise<GameInfo | null> {
 
 // GDevelop project JSON is dynamic — `any` is intentional here
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractProjectData(text: string): any | null {
+export function extractProjectData(text: string): any | null {
   // data.js: gdjs.projectData = {...};\ngdjs.runtimeGameOptions = {...};
   // Use delimiter split — avoids lazy regex that truncates nested JSON
   const marker = 'gdjs.projectData';
